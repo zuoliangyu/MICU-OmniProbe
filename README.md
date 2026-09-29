@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.10.0-blue" alt="Version 2.10.0" />
+  <img src="https://img.shields.io/badge/version-3.0.0-blue" alt="Version 3.0.0" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey" alt="Windows Linux macOS" />
 </p>
@@ -19,6 +19,10 @@
   · <a href="https://zuoliangyu.github.io/MICU-OmniProbe/#/QUICK_START">快速入门</a>
   · <a href="https://zuoliangyu.github.io/MICU-OmniProbe/">用户文档</a>
   · <a href="CHANGELOG.md">更新日志</a>
+</p>
+
+<p align="center">
+  <img src="docs/images/serial-split.png" width="920" alt="串口工作台：模拟数据的实时日志与双通道波形" />
 </p>
 
 ## 这是什么
@@ -37,11 +41,42 @@ MICU-OmniProbe 把嵌入式开发中经常分散在多个软件里的工作流�
 | 调试无线设备           | 蓝牙         | BLE 扫描、GATT、Notify / Write、NUS 自动识别、经典蓝牙 SPP |
 | 定位 Cortex-M 程序问题 | 调试         | 源码、寄存器、内存、Watch、调用栈和断点                    |
 
-## 2.10.0 更新重点
+## 界面预览
 
-- 新增通用二进制协议设计器，支持帧同步、长度、多消息类型、数值字段和 CRC/校验和配置
-- 串口、TCP/UDP、RTT、BLE 与经典蓝牙 SPP 可复用同一份协议，并将字段接入现有图表和分析链路
-- 新增本机协议库，可保存多个设备协议并在数据解析页快速切换
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/control-panel.png" alt="控制面板：波形、FFT、数值、状态灯、滑块、摇杆与串口日志组合" /></td>
+    <td width="50%"><img src="docs/images/log-analysis.png" alt="日志分析：导入日志后分屏查看文本与数值曲线" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>控制面板</b>：自由画布组合发送控件与实时图表</td>
+    <td align="center"><b>日志分析</b>：流式导入大日志，按前缀提取数值绘图</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/protocol-designer.png" alt="二进制协议设计器：帧头、长度字段与 CRC 配置" /></td>
+    <td width="50%"><img src="docs/images/fft-demo.png" alt="FFT 频谱：5 Hz 主信号与 40 Hz 干扰" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>二进制协议设计器</b>：可视化配置帧同步、字段与 CRC</td>
+    <td align="center"><b>FFT 频谱</b>：内置滤波演示，一眼看出 5 Hz 信号与 40 Hz 干扰</td>
+  </tr>
+</table>
+
+> 截图均使用应用内置的“模拟数据”生成，无需连接硬件即可复现。
+
+## 3.0.0 更新重点
+
+3.0.0 是一次全面的稳定性与体验升级，重点在“长时间、高速率采集下依然流畅可靠”：
+
+- **更流畅**：高速数据流下不再整页重渲染，首屏加载体积减少约 22%，设置中心、协议设计器等对话框按需加载
+- **更可靠**：串口 / RTT 快速启停不再出现两路读取；烧录、连接等耗时操作不再卡住界面或其他数据流
+- **更安全**：异常 Pack 不会再导致崩溃；应用只能访问你选择的背景图片；AI 桥接拒绝网页跨协议写入
+- **调试更准确**：“单步跳过”真正跨过函数调用，“单步跳出”超时后自动暂停；自定义地址烧录 BIN 后校验结果正确
+- **蓝牙增强**：设备掉线自动更新状态，停止扫描即时生效，发送支持 GBK 编码
+- **界面打磨**：修复对话框关闭按钮错位与半透明、图表图例遮挡；烧录主操作显示文字，连接按钮统一固定在侧栏底部
+- **串口提示**：收不到数据但其他串口助手正常时，“高级设置”会直接提示开启 DTR（树莓派 Pico 等 USB 虚拟串口常见）
+
+完整变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 当前界面采用统一的 IDE 式布局：
 
@@ -50,7 +85,7 @@ MICU-OmniProbe 把嵌入式开发中经常分散在多个软件里的工作流�
 - 中央工作区专注当前任务，低频操作统一收进“更多”
 - 右侧配置检查器负责连接和参数设置，可折叠、拖动宽度
 - 底部日志默认折叠，需要排查连接、解析或烧录问题时再展开
-- 工作台会按实际容器宽度调整工具栏、检查器、图表和 IMU 布局，窄窗口下仍可完成主要操作
+- 工作台会按实际窗口宽度调整工具栏、检查器、图表和 IMU 布局
 
 RTT、串口和 BLE 图表可以分别弹出为独立窗口。控制面板使用独立的主工作台，可选择串口或 RTT 数据来源；BLE 面板来源暂未实现。
 
@@ -291,7 +326,7 @@ Windows 也可以直接运行：
 
 ## 版本、反馈与贡献
 
-- 当前版本：`2.10.0`
+- 当前版本：`3.0.0`
 - 完整变化：[CHANGELOG.md](CHANGELOG.md)
 - 问题与建议：[GitHub Issues](https://github.com/zuoliangyu/MICU-OmniProbe/issues)
 - 项目仓库：[zuoliangyu/MICU-OmniProbe](https://github.com/zuoliangyu/MICU-OmniProbe)

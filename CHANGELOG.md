@@ -7,6 +7,10 @@
 
 ## [未发布]
 
+## [3.0.0] - 2026-09-29
+
+3.0.0 是一次全面的稳定性与体验升级：项目更名为 MICU-OmniProbe，并重点优化长时间、高速率采集下的流畅度与可靠性。
+
 ### 变更
 
 - 项目更名为 MICU-OmniProbe，仓库迁移至 [zuoliangyu/MICU-OmniProbe](https://github.com/zuoliangyu/MICU-OmniProbe)，由米醋电子工作室左岚进行维护
@@ -23,6 +27,7 @@
 - 日志分析空状态提供"导入日志""模拟数据"快捷按钮
 - 蓝牙发送支持 GBK 编码；蓝牙设备掉线后自动更新连接状态
 - 源码调试"单步跳过"真正跨过函数调用，"单步跳出"超时后自动暂停并返回实际位置
+- 串口"高级设置"折叠时提示开启 DTR，帮助排查树莓派 Pico 等 USB 虚拟串口收不到数据的问题
 
 ### 修复
 
@@ -37,6 +42,7 @@
 - 修复烧录、连接等耗时操作期间界面卡顿、其他数据流停止上报的问题
 - AI 桥接拒绝非 JSON 请求，防止网页跨协议写入串口
 - 图表 Y 轴使用整齐刻度；统一界面下拉框样式并修正多处中英混杂文案
+- 修复控制面板图表组件的图例被"自适应"按钮遮挡的问题
 
 ## [2.10.0] - 2026-08-14
 
@@ -1794,7 +1800,8 @@ SEGGER_RTT_printf(0, "%.1f,%.1f,%.1f\n", temp, humi, press);
 
 ---
 
-[未发布]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.10.0...HEAD
+[未发布]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.10.0...v3.0.0
 [2.10.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.9.0...v2.10.0
 [2.9.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.8.1...v2.9.0
 [2.8.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.8.0...v2.8.1
