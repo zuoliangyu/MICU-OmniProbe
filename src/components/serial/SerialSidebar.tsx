@@ -396,7 +396,11 @@ export function SerialSidebar() {
                       <CardDescription className="mt-1 text-xs">
                         {localConfig.data_bits}-{localConfig.stop_bits}-{localConfig.parity} ·{" "}
                         {localConfig.flow_control}
+                        {localConfig.dtr && " · DTR"}
+                        {localConfig.rts && " · RTS"}
                       </CardDescription>
+                      {/* 树莓派 Pico 等 USB 虚拟串口需 DTR 才发送，用户常不展开这里，折叠状态下也要提示 */}
+                      {!localConfig.dtr && <p className="mt-1 text-xs text-amber-600">收不到数据？展开开启 DTR 试试</p>}
                     </div>
                     {serialSettingsOpen ? (
                       <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -485,7 +489,7 @@ export function SerialSidebar() {
                   <div className="flex items-center justify-between gap-2 pt-1">
                     <div className="space-y-0.5">
                       <label className="text-xs font-medium">DTR</label>
-                      <p className="text-xs text-muted-foreground">打开串口后拉高 DTR (默认关，部分设备需开启)</p>
+                      <p className="text-xs text-muted-foreground">打开串口后拉高 DTR (默认关，USB 虚拟串口常需开启)</p>
                     </div>
                     <Switch
                       checked={localConfig.dtr ?? false}
