@@ -457,10 +457,9 @@ jobs:
           # 删除可能已存在的 latest.json（由各平台 job 上传的）
           gh release delete-asset $TAG latest.json -y 2>/dev/null || true
 
+      # 只上传资产、不改动 Release 元数据：workflow_dispatch 下 action-gh-release 会尝试更新
+      # Release 并报 "Resource not accessible by integration"，导致 latest.json 缺失（v3.0.0 发生过）
       - name: Upload merged latest.json to Release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: v${{ needs.build.outputs.version }}
-          files: latest.json
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "v${{ needs.build.outputs.version }}" latest.json --clobber
