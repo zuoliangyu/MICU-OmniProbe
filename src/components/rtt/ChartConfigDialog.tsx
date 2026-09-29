@@ -259,7 +259,7 @@ export function ChartConfigDialog({
       await exportJson(
         JSON.stringify(
           {
-            format: "EK-OmniProbe parametric cascade",
+            format: "MICU-OmniProbe parametric cascade",
             version: 1,
             sampleRateHz: filter.sampleRateHz,
             stages: filter.parametricStages,

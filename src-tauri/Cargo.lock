@@ -1223,44 +1223,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
-name = "ek-omniprobe"
-version = "2.10.0"
-dependencies = [
- "addr2line",
- "base64 0.22.1",
- "btleplug",
- "chrono",
- "directories",
- "encoding_rs",
- "env_logger",
- "futures",
- "gimli 0.31.1",
- "hex",
- "log",
- "nusb 0.1.14",
- "object 0.36.7",
- "parking_lot",
- "probe-rs",
- "quick-xml 0.37.5",
- "serde",
- "serde_json",
- "serialport",
- "tauri",
- "tauri-build",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tauri-plugin-process",
- "tauri-plugin-shell",
- "tauri-plugin-updater",
- "tauri-plugin-window-state",
- "thiserror 2.0.18",
- "tokio",
- "uuid",
- "zip 2.4.2",
- "zmodem2",
-]
-
-[[package]]
 name = "embed-resource"
 version = "3.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2851,6 +2813,44 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "micu-omniprobe"
+version = "2.10.0"
+dependencies = [
+ "addr2line",
+ "base64 0.22.1",
+ "btleplug",
+ "chrono",
+ "directories",
+ "encoding_rs",
+ "env_logger",
+ "futures",
+ "gimli 0.31.1",
+ "hex",
+ "log",
+ "nusb 0.1.14",
+ "object 0.36.7",
+ "parking_lot",
+ "probe-rs",
+ "quick-xml 0.37.5",
+ "serde",
+ "serde_json",
+ "serialport",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-process",
+ "tauri-plugin-shell",
+ "tauri-plugin-updater",
+ "tauri-plugin-window-state",
+ "thiserror 2.0.18",
+ "tokio",
+ "uuid",
+ "zip 2.4.2",
+ "zmodem2",
 ]
 
 [[package]]

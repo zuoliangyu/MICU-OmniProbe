@@ -146,7 +146,7 @@ try {
     $devPort = $portPair.DevPort
     $hmrPort = $portPair.HmrPort
     $devUrl = "http://localhost:$devPort"
-    $tauriConfigOverridePath = Join-Path $env:TEMP ("ek-omniprobe-tauri-dev-{0}.json" -f [guid]::NewGuid().ToString("N"))
+    $tauriConfigOverridePath = Join-Path $env:TEMP ("micu-omniprobe-tauri-dev-{0}.json" -f [guid]::NewGuid().ToString("N"))
     Set-Content -LiteralPath $tauriConfigOverridePath -Value (@{
         build = @{
             devUrl = $devUrl

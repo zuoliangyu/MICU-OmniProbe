@@ -150,7 +150,7 @@ def self_test(_args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="EK-OmniProbe AI 数据桥接客户端")
+    parser = argparse.ArgumentParser(description="MICU-OmniProbe AI 数据桥接客户端")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     watch_parser = subparsers.add_parser("watch", help="持续输出 NDJSON 数据流")

@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: 使用文档
-    url: https://github.com/EmbeddedKitOrg/EK-OmniProbe/tree/main/docs
+    url: https://github.com/zuoliangyu/MICU-OmniProbe/tree/main/docs
     about: 各工作台的使用说明、快速入门与常见问题，先看这里
   - name: 更新日志
-    url: https://github.com/EmbeddedKitOrg/EK-OmniProbe/blob/main/CHANGELOG.md
+    url: https://github.com/zuoliangyu/MICU-OmniProbe/blob/main/CHANGELOG.md
     about: 确认你遇到的问题是否已在新版本修复
   - name: 讨论与提问
-    url: https://github.com/EmbeddedKitOrg/EK-OmniProbe/discussions
+    url: https://github.com/zuoliangyu/MICU-OmniProbe/discussions
     about: 使用疑问、硬件适配咨询、想法交流请走 Discussions

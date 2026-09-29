@@ -155,7 +155,7 @@ function parseHeaderLine(line: string): SessionHeader {
   try {
     raw = JSON.parse(line);
   } catch {
-    throw new Error("会话文件首行不是合法 JSON，可能不是 EK-OmniProbe 会话文件");
+    throw new Error("会话文件首行不是合法 JSON，可能不是 MICU-OmniProbe 会话文件");
   }
   const header = raw as Partial<SessionHeader>;
   if (header?.schema !== SESSION_SCHEMA) {

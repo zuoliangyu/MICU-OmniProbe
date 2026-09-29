@@ -1,6 +1,6 @@
-# EK-OmniProbe 快速入门指南
+# MICU-OmniProbe 快速入门指南
 
-本指南帮助您快速上手 EK-OmniProbe，了解基本功能和操作流程。
+本指南帮助您快速上手 MICU-OmniProbe，了解基本功能和操作流程。
 
 ## 目录
 

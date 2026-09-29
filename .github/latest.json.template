@@ -5,19 +5,19 @@
   "platforms": {
     "windows-x86_64": {
       "signature": "",
-      "url": "https://github.com/EmbeddedKitOrg/EK-OmniProbe/releases/download/vX.Y.Z/EK-OmniProbe_X.Y.Z_x64-setup.exe"
+      "url": "https://github.com/zuoliangyu/MICU-OmniProbe/releases/download/vX.Y.Z/MICU-OmniProbe_X.Y.Z_x64-setup.exe"
     },
     "linux-x86_64": {
       "signature": "",
-      "url": "https://github.com/EmbeddedKitOrg/EK-OmniProbe/releases/download/vX.Y.Z/EK-OmniProbe_X.Y.Z_amd64.AppImage"
+      "url": "https://github.com/zuoliangyu/MICU-OmniProbe/releases/download/vX.Y.Z/MICU-OmniProbe_X.Y.Z_amd64.AppImage"
     },
     "darwin-x86_64": {
       "signature": "",
-      "url": "https://github.com/EmbeddedKitOrg/EK-OmniProbe/releases/download/vX.Y.Z/EK-OmniProbe_universal.app.tar.gz"
+      "url": "https://github.com/zuoliangyu/MICU-OmniProbe/releases/download/vX.Y.Z/MICU-OmniProbe_universal.app.tar.gz"
     },
     "darwin-aarch64": {
       "signature": "",
-      "url": "https://github.com/EmbeddedKitOrg/EK-OmniProbe/releases/download/vX.Y.Z/EK-OmniProbe_universal.app.tar.gz"
+      "url": "https://github.com/zuoliangyu/MICU-OmniProbe/releases/download/vX.Y.Z/MICU-OmniProbe_universal.app.tar.gz"
     }
   }
 }

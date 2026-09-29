@@ -1,6 +1,6 @@
 # AI 数据桥接与可视化调参指南
 
-EK-OmniProbe 可以把串口文本行和解析得到的原始标准样本，以实时 NDJSON 数据流提供给本机 AI 工具。AI 与文本区、波形和 FFT 来自同一批输入，但数值样本当前不应用页面中的滤波配置，因此可以保留原始数据进行分析和调参。
+MICU-OmniProbe 可以把串口文本行和解析得到的原始标准样本，以实时 NDJSON 数据流提供给本机 AI 工具。AI 与文本区、波形和 FFT 来自同一批输入，但数值样本当前不应用页面中的滤波配置，因此可以保留原始数据进行分析和调参。
 
 ## 开始使用
 
@@ -13,13 +13,13 @@ EK-OmniProbe 可以把串口文本行和解析得到的原始标准样本，以�
 持续查看标准数据流：
 
 ```bash
-python skills/ek-omniprobe-ai/scripts/client.py watch --port 8765
+python skills/micu-omniprobe-ai/scripts/client.py watch --port 8765
 ```
 
 采集 5 秒并生成适合 AI 阅读的统计摘要：
 
 ```bash
-python skills/ek-omniprobe-ai/scripts/client.py snapshot --port 8765 --seconds 5
+python skills/micu-omniprobe-ai/scripts/client.py snapshot --port 8765 --seconds 5
 ```
 
 摘要包含样本数、采样率、每个通道的最小值、最大值、均值、标准差和最新值，以及采集窗口内最近 200 行串口文本。即使没有可解析的数值，只要收到了文本行，采集也会成功。
@@ -53,7 +53,7 @@ AI 桥接复用串口数据解析，支持现有的：
 发送文本命令：
 
 ```bash
-python skills/ek-omniprobe-ai/scripts/client.py write --port 8765 --text "kp=0.20" --line-ending lf
+python skills/micu-omniprobe-ai/scripts/client.py write --port 8765 --text "kp=0.20" --line-ending lf
 ```
 
 支持 `none`、`lf`、`crlf`、`cr` 四种换行，单条命令最多 1024 字节。命令成功写入串口后会返回包含写入字节数的 ACK；未授权、串口未连接或命令不合法时会返回错误。
@@ -71,7 +71,7 @@ python skills/ek-omniprobe-ai/scripts/client.py write --port 8765 --text "kp=0.2
 
 ## Codex Skill
 
-项目提供 `skills/ek-omniprobe-ai`。将该目录安装到 Codex Skills 后，可以用 `$ek-omniprobe-ai` 要求 AI 观察串口数据、比较调参前后指标，并在用户确认后执行受控写入。
+项目提供 `skills/micu-omniprobe-ai`。将该目录安装到 Codex Skills 后，可以用 `$micu-omniprobe-ai` 要求 AI 观察串口数据、比较调参前后指标，并在用户确认后执行受控写入。
 
 串口工具栏的“更多”菜单提供“Skill”入口，可直接复制 Skill 的 GitHub 链接，或复制已经带上当前桥接端口和安全要求的安装文案，再粘贴给用户自己的 AI。软件不会自动修改任何 AI 工具的安装目录。
 

@@ -670,7 +670,7 @@ pub fn generate_probe_rs_yaml_with_algo(
 
     // 版本标记（用于检测旧版本配置）
     yaml.push_str(&format!(
-        "# EK-OmniProbe Pack Scanner Version: {}\n",
+        "# MICU-OmniProbe Pack Scanner Version: {}\n",
         PACK_SCANNER_VERSION
     ));
     yaml.push_str(&format!(
@@ -937,10 +937,12 @@ pub fn detect_pack_scanner_version(pack_dir: &Path) -> Option<String> {
 
     // 查找版本标记行
     for line in content.lines() {
-        if line.starts_with("# EK-OmniProbe Pack Scanner Version:") {
-            // 提取版本号
-            let version = line.trim_start_matches("# EK-OmniProbe Pack Scanner Version:").trim();
-            return Some(version.to_string());
+        // 兼容更名前（EK-OmniProbe）生成的缓存，避免升级后全部 Pack 重新扫描
+        let marker = line
+            .strip_prefix("# MICU-OmniProbe Pack Scanner Version:")
+            .or_else(|| line.strip_prefix("# EK-OmniProbe Pack Scanner Version:"));
+        if let Some(version) = marker {
+            return Some(version.trim().to_string());
         }
     }
 

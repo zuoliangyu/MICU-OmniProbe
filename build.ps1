@@ -79,8 +79,9 @@ function Initialize-TauriSigningEnv {
         }
     }
 
-    # 3) Auto-detect ~/.tauri/ek-omniprobe.key (legacy: zuolandaplink.key)
+    # 3) Auto-detect ~/.tauri/micu-omniprobe.key (legacy: ek-omniprobe.key, zuolandaplink.key)
     $candidates = @(
+        (Join-Path -Path $env:USERPROFILE -ChildPath ".tauri\micu-omniprobe.key"),
         (Join-Path -Path $env:USERPROFILE -ChildPath ".tauri\ek-omniprobe.key"),
         (Join-Path -Path $env:USERPROFILE -ChildPath ".tauri\zuolandaplink.key")
     )

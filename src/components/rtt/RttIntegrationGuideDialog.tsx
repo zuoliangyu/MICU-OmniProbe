@@ -16,8 +16,8 @@ interface RttIntegrationGuideDialogProps {
   trigger?: ReactNode;
 }
 
-const RTT_REPO_URL = "https://github.com/EmbeddedKitOrg/EK-OmniProbe/tree/main/RTTBSP";
-const EXAMPLE_REPO_URL = "https://github.com/EmbeddedKitOrg/EK-OmniProbe/tree/main/examples/gd32-rtt";
+const RTT_REPO_URL = "https://github.com/zuoliangyu/MICU-OmniProbe/tree/main/RTTBSP";
+const EXAMPLE_REPO_URL = "https://github.com/zuoliangyu/MICU-OmniProbe/tree/main/examples/gd32-rtt";
 
 const SNIPPET_INCLUDE = `#include "SEGGER_RTT.h"`;
 
@@ -43,7 +43,7 @@ SEGGER_RTT_printf(0, "%d,%d,%d\\n", v1, v2, v3);
 // JSON（字段名会作为通道名）
 SEGGER_RTT_printf(0, "{\\"temp\\":%d,\\"hum\\":%d}\\n", temp, hum);`;
 
-const SNIPPET_COLOR = `// 标准 ANSI 颜色码，EK-OmniProbe 会渲染颜色
+const SNIPPET_COLOR = `// 标准 ANSI 颜色码，MICU-OmniProbe 会渲染颜色
 SEGGER_RTT_printf(0, "\\x1b[32m[OK]\\x1b[0m boot done\\r\\n");
 SEGGER_RTT_printf(0, "\\x1b[31m[ERR]\\x1b[0m sensor lost\\r\\n");
 SEGGER_RTT_printf(0, "\\x1b[33m[WARN]\\x1b[0m low battery\\r\\n");`;
@@ -74,7 +74,7 @@ export function RttIntegrationGuideDialog({ trigger }: RttIntegrationGuideDialog
           <div className="space-y-5 pb-2">
             <Step number={1} title="把 4 个 SEGGER 源文件加入工程">
               <p className="text-xs leading-6 text-muted-foreground">
-                EK-OmniProbe 仓库的 <Code>RTTBSP/</Code> 目录已经备好这 4 个文件，复制到目标工程里即可：
+                MICU-OmniProbe 仓库的 <Code>RTTBSP/</Code> 目录已经备好这 4 个文件，复制到目标工程里即可：
               </p>
               <ul className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs font-mono text-foreground">
                 <li>· SEGGER_RTT.c</li>
@@ -99,14 +99,14 @@ export function RttIntegrationGuideDialog({ trigger }: RttIntegrationGuideDialog
 
             <Step number={3} title="像 printf 一样调用">
               <p className="text-xs leading-6 text-muted-foreground">
-                通道 0 是默认 stdout 通道，EK-OmniProbe 默认读取该通道：
+                通道 0 是默认 stdout 通道，MICU-OmniProbe 默认读取该通道：
               </p>
               <CodeSnippet language="c" code={SNIPPET_HELLO} />
             </Step>
 
             <Step number={4} title="按需选择数据格式">
               <p className="text-xs leading-6 text-muted-foreground">
-                EK-OmniProbe 的图表能自动识别下面 4 种格式，每行一条记录，记得带换行符：
+                MICU-OmniProbe 的图表能自动识别下面 4 种格式，每行一条记录，记得带换行符：
               </p>
               <CodeSnippet language="c" code={SNIPPET_NUMERIC} />
               <p className="mt-3 text-xs leading-6 text-muted-foreground">
@@ -127,7 +127,7 @@ export function RttIntegrationGuideDialog({ trigger }: RttIntegrationGuideDialog
                 </li>
                 <li>编译报找不到头文件 → 检查 Include Path 是否加上了 RTTBSP 目录。</li>
                 <li>
-                  EK-OmniProbe 启动 RTT 后看不到输出 → 在「扫描模式」试试「全片扫描」， 或在 map 文件里查{" "}
+                  MICU-OmniProbe 启动 RTT 后看不到输出 → 在「扫描模式」试试「全片扫描」， 或在 map 文件里查{" "}
                   <Code>_SEGGER_RTT</Code> 地址手动指定。
                 </li>
                 <li>中文乱码 → 源文件保存为 UTF-8（含 BOM 也行），并避免 GB2312。</li>

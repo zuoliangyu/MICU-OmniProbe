@@ -30,7 +30,7 @@ import { CanSignalEditor } from "@/components/serial/CanSignalEditor";
 import { BinaryProtocolDesigner } from "@/components/serial/BinaryProtocolDesigner";
 import { loadBinaryProtocolLibrary } from "@/lib/binaryProtocolLibrary";
 
-const DATA_FORMAT_DOC_URL = "https://embeddedkitorg.github.io/EK-OmniProbe/#/DATA_FORMAT_GUIDE";
+const DATA_FORMAT_DOC_URL = "https://zuoliangyu.github.io/MICU-OmniProbe/#/DATA_FORMAT_GUIDE";
 
 interface ChartParserPanelProps {
   chartConfig: ChartConfig;

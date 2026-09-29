@@ -9,7 +9,7 @@ use std::path::PathBuf;
 ///
 /// 优先级：
 /// 1. 用户自定义路径
-/// 2. Linux: XDG 标准目录 ~/.local/share/EK-OmniProbe/packs
+/// 2. Linux: XDG 标准目录 ~/.local/share/micu-omniprobe/packs
 ///    （若存在旧目录 ~/.local/share/zuolan-daplink/packs 则继续沿用，便于平滑迁移）
 /// 3. 其他平台: 可执行文件同级目录 <exe_dir>/data/packs
 pub fn get_packs_dir() -> PathBuf {
@@ -29,7 +29,7 @@ pub fn get_packs_dir() -> PathBuf {
                 return legacy_dir;
             }
         }
-        if let Some(proj_dirs) = ProjectDirs::from("org", "EmbeddedKit", "EK-OmniProbe") {
+        if let Some(proj_dirs) = ProjectDirs::from("com", "micu", "MICU-OmniProbe") {
             return proj_dirs.data_dir().join("packs");
         }
     }

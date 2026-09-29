@@ -4,6 +4,7 @@ pub mod ble;
 pub mod commands;
 pub mod debug_symbols;
 pub mod error;
+pub mod legacy_migration;
 pub mod pack;
 pub mod serial;
 pub mod state;
@@ -17,6 +18,9 @@ use tauri::{Emitter, Manager};
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::init();
+
+    let context = tauri::generate_context!();
+    legacy_migration::migrate_legacy_data(&context.config().identifier);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -141,7 +145,7 @@ pub fn run() {
             ble_cmd::ble_write,
             ble_cmd::ble_write_string,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("启动应用程序时出错");
 }
 

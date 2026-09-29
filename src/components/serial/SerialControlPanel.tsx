@@ -74,7 +74,7 @@ const EMPTY_CHART_VALUES: Record<string, number> = {};
 const CANVAS_GAP = 12;
 const MIN_WIDGET_WIDTH = 200;
 const MIN_WIDGET_HEIGHT = 96;
-const WIDGET_INPUT_DOC_URL = "https://embeddedkitorg.github.io/EK-OmniProbe/#/SERIAL_CONTROL_PANEL_GUIDE";
+const WIDGET_INPUT_DOC_URL = "https://zuoliangyu.github.io/MICU-OmniProbe/#/SERIAL_CONTROL_PANEL_GUIDE";
 
 export interface ControlPanelData extends SerialViewerData {
   chartData: ChartDataPoint[];

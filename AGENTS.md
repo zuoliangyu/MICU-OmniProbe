@@ -1,4 +1,4 @@
-# EK-OmniProbe 项目开发规范
+# MICU-OmniProbe 项目开发规范
 
 ## 文档规范
 

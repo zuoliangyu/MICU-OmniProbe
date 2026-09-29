@@ -7,6 +7,13 @@
 
 ## [未发布]
 
+### 变更
+
+- 项目更名为 MICU-OmniProbe，仓库迁移至 [zuoliangyu/MICU-OmniProbe](https://github.com/zuoliangyu/MICU-OmniProbe)，由米醋电子工作室左岚进行维护
+- 更换全平台应用图标，应用 ID 变更为 `com.micu.omniprobe`
+- 首次启动时自动把旧版 EK-OmniProbe 的设置、界面状态和 Pack 数据迁移到新目录，无需重新配置
+- Windows 安装新版时自动迁移旧安装目录中的 Pack 数据，并静默卸载旧版 EK-OmniProbe 及其快捷方式
+
 ## [2.10.0] - 2026-08-14
 
 ### 新增
@@ -79,7 +86,7 @@
 
 ### 致谢
 
-- 感谢 [@MermaidFAR](https://github.com/MermaidFAR) 通过 [#5](https://github.com/EmbeddedKitOrg/EK-OmniProbe/pull/5) 和 [#6](https://github.com/EmbeddedKitOrg/EK-OmniProbe/pull/6) 提供问题复现、核心修复与回归测试；合入时保留其方案，并结合项目已有改动微调了用户文档、CHANGELOG 与发布说明
+- 感谢 [@MermaidFAR](https://github.com/MermaidFAR) 通过 [#5](https://github.com/zuoliangyu/MICU-OmniProbe/pull/5) 和 [#6](https://github.com/zuoliangyu/MICU-OmniProbe/pull/6) 提供问题复现、核心修复与回归测试；合入时保留其方案，并结合项目已有改动微调了用户文档、CHANGELOG 与发布说明
 
 ## [2.7.3] - 2026-08-10
 
@@ -686,7 +693,7 @@ i18n 补丁版本：调试工作台 UI 文案统一中文，与项目其他四�
 
 - 🗑️ **删除未使用的 Playwright e2e** - `tests/e2e/` 只有一个 28 行测配色弹窗位置的 spec，CI 没跑，桌面应用核心功能（探针/烧录/RTT/蓝牙）也无法纯前端测；同步移除 `playwright.config.ts`、`@playwright/test` devDep、3 个 `test:e2e*` script
 - 🗑️ **删除 `TEST_KEIL/` 私人测试目录** - 该目录原本就在 `.gitignore` 里没入库，存的是作者本地 Keil 工程 + .pack 文件 + 视频例程压缩包；其中 GD32 RTT 工程清理掉编译产物后已迁到 `examples/gd32-rtt/`，剩下的 stc32 / pack / 视频教程整体清理，`.gitignore` 同步去掉对应条目
-- 🔧 **`.github/latest.json.template`** - 旧 `zuoliangyu/ZUOLANDAPLINK` 仓库 URL + 旧产物名 → 新 `EmbeddedKitOrg/EK-OmniProbe` 占位模板（之前的模板若被发布脚本误用，updater 会直接 404）
+- 🔧 **`.github/latest.json.template`** - 旧 `zuoliangyu/ZUOLANDAPLINK` 仓库 URL + 旧产物名 → 新 `zuoliangyu/MICU-OmniProbe` 占位模板（之前的模板若被发布脚本误用，updater 会直接 404）
 - 🔧 **CLAUDE.md 标题** - `# ZUOLANDAPLINK 项目开发规范` → `# EK-OmniProbe 项目开发规范`
 
 ## [1.2.1] - 2026-05-05
@@ -1763,26 +1770,26 @@ SEGGER_RTT_printf(0, "%.1f,%.1f,%.1f\n", temp, humi, press);
 
 ---
 
-[1.1.0]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v1.0.1...v1.1.0
-[1.0.1]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v1.0.0...v1.0.1
-[1.0.0]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.9.5...v1.0.0
-[0.9.5]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.9.4...v0.9.5
-[0.9.4]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.9.3...v0.9.4
-[0.9.0]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.8.0...v0.9.0
-[0.9.3]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.9.2...v0.9.3
-[0.8.0]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.7.2...v0.8.0
-[0.7.2]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.7.1...v0.7.2
-[0.7.1]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.7.0...v0.7.1
-[0.7.0]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.6.1...v0.7.0
-[0.6.1]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.6.0...v0.6.1
-[0.6.0]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.5.6...v0.6.0
-[0.5.0]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.4.2...v0.5.0
-[0.4.2]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.4.1...v0.4.2
-[0.4.1]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.4.0...v0.4.1
-[0.4.0]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.3.3...v0.4.0
-[0.3.3]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.3.2...v0.3.3
-[0.3.2]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.3.1...v0.3.2
-[0.3.1]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.3.0...v0.3.1
-[0.3.0]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/EmbeddedKitOrg/EK-OmniProbe/releases/tag/v0.1.0
+[1.1.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.0.1...v1.1.0
+[1.0.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.9.5...v1.0.0
+[0.9.5]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.9.4...v0.9.5
+[0.9.4]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.9.3...v0.9.4
+[0.9.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.8.0...v0.9.0
+[0.9.3]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.9.2...v0.9.3
+[0.8.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.7.2...v0.8.0
+[0.7.2]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.6.1...v0.7.0
+[0.6.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.5.6...v0.6.0
+[0.5.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.4.2...v0.5.0
+[0.4.2]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.4.1...v0.4.2
+[0.4.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.3.3...v0.4.0
+[0.3.3]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/zuoliangyu/MICU-OmniProbe/releases/tag/v0.1.0

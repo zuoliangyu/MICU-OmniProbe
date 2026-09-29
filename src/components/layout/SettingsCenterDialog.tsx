@@ -39,7 +39,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { AuthorAboutDialog } from "./AuthorAboutDialog";
 import { UpdateChecker } from "@/components/UpdateChecker";
 
-const USER_DOCS_URL = "https://embeddedkitorg.github.io/EK-OmniProbe/";
+const USER_DOCS_URL = "https://zuoliangyu.github.io/MICU-OmniProbe/";
 
 const workspaceOptions: Array<{ value: AppMode; label: string }> = WORKSPACES.map(({ id, settingsLabel }) => ({
   value: id,

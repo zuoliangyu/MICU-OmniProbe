@@ -10,7 +10,7 @@ import { getAiBridgeStatus, setAiBridgeWriteEnabled, startAiBridge, stopAiBridge
 import { useShallow } from "zustand/react/shallow";
 
 const PORT_KEY = "serial_ai_bridge_port";
-const SKILL_URL = "https://github.com/EmbeddedKitOrg/EK-OmniProbe/tree/main/skills/ek-omniprobe-ai";
+const SKILL_URL = "https://github.com/zuoliangyu/MICU-OmniProbe/tree/main/skills/micu-omniprobe-ai";
 
 export function AiBridgeControl() {
   const { status, parsingEnabled, setStatus } = useSerialStore(
@@ -77,7 +77,7 @@ export function AiBridgeControl() {
 
   const copyCommand = async () => {
     await navigator.clipboard.writeText(
-      `python skills/ek-omniprobe-ai/scripts/client.py watch --port ${status.port || port}`
+      `python skills/micu-omniprobe-ai/scripts/client.py watch --port ${status.port || port}`
     );
     addLog("success", "已复制 AI 数据流监听命令");
   };
@@ -153,7 +153,7 @@ export function AiSkillLink() {
   const addLog = useLogStore((state) => state.addLog);
   const savedPort = Number(localStorage.getItem(PORT_KEY));
   const port = activePort || (Number.isInteger(savedPort) && savedPort >= 1024 ? savedPort : 8765);
-  const prompt = `请安装并使用这个 Skill：\n${SKILL_URL}\n\nEK-OmniProbe AI 数据桥接地址是 127.0.0.1:${port}。\n安装后请先采集并分析数据，未经我确认不要发送串口调参命令。`;
+  const prompt = `请安装并使用这个 Skill：\n${SKILL_URL}\n\nMICU-OmniProbe AI 数据桥接地址是 127.0.0.1:${port}。\n安装后请先采集并分析数据，未经我确认不要发送串口调参命令。`;
 
   const copy = async (text: string, success: string) => {
     try {

@@ -64,7 +64,7 @@ export function TopBar({ inspectorOpen, onToggleInspector }: TopBarProps) {
         </div>
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold">{label}</div>
-          <div className="ide-topbar-subtitle text-[11px] text-muted-foreground">EK-OmniProbe</div>
+          <div className="ide-topbar-subtitle text-[11px] text-muted-foreground">MICU-OmniProbe</div>
         </div>
       </div>
 

@@ -1,6 +1,6 @@
-# EK-OmniProbe 用户文档
+# MICU-OmniProbe 用户文档
 
-从这里开始了解 EK-OmniProbe。文档优先回答两个问题：**功能需要什么输入**，以及**输入默认流向哪里**。
+从这里开始了解 MICU-OmniProbe。文档优先回答两个问题：**功能需要什么输入**，以及**输入默认流向哪里**。
 
 > 第一次使用建议先看 [快速入门](QUICK_START.md)。需要驱动波形、FFT、数据显示或 IMU 时，直接查看 [输入数据解析格式](DATA_FORMAT_GUIDE.md)。
 

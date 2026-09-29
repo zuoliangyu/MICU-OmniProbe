@@ -3,8 +3,8 @@
 
 #[cfg(test)]
 mod tests {
-    use ek_omniprobe_lib::pack::progress;
-    use ek_omniprobe_lib::pack::target_gen;
+    use micu_omniprobe_lib::pack::progress;
+    use micu_omniprobe_lib::pack::target_gen;
     use std::sync::{Arc, Mutex};
 
     #[test]

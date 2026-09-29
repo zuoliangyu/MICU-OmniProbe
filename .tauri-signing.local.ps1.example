@@ -6,8 +6,8 @@
 # build.ps1 will dot-source this file before invoking `tauri build`.
 
 # Path to the rsign-encrypted secret key.
-# Default: $env:USERPROFILE\.tauri\ek-omniprobe.key
-$env:TAURI_SIGNING_PRIVATE_KEY = "$env:USERPROFILE\.tauri\ek-omniprobe.key"
+# Default: $env:USERPROFILE\.tauri\micu-omniprobe.key
+$env:TAURI_SIGNING_PRIVATE_KEY = "$env:USERPROFILE\.tauri\micu-omniprobe.key"
 
 # Password used to encrypt the secret key. Leave empty if the key is not encrypted.
 $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "your_password_here"

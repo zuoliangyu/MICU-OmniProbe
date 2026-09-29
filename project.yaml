@@ -1,4 +1,4 @@
-name: EK-OmniProbe
+name: MICU-OmniProbe
 authors: [左岚]
 category: Tool
 tags: [嵌入式, 调试器, 烧录, RTT, 串口, BLE, probe-rs, Tauri, Rust]
@@ -10,4 +10,4 @@ demo: https://space.bilibili.com/27619688
 readme: README.md
 
 links:
-  github: https://github.com/EmbeddedKitOrg/EK-OmniProbe
+  github: https://github.com/zuoliangyu/MICU-OmniProbe

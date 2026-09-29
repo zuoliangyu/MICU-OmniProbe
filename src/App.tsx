@@ -80,7 +80,7 @@ function MainApp() {
   }, [schemeId]);
 
   useEffect(() => {
-    addLog("info", "EK-OmniProbe 已启动");
+    addLog("info", "MICU-OmniProbe 已启动");
     addLog("info", "等待连接调试探针...");
 
     // Initialize: load imported Packs

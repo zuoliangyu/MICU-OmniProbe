@@ -21,5 +21,5 @@
   - [蓝牙用户手册](BLUETOOTH_USER_MANUAL.md)
   - [设置中心](SETTINGS_GUIDE.md)
 
-- [项目主页](https://github.com/EmbeddedKitOrg/EK-OmniProbe)
-- [下载最新版](https://github.com/EmbeddedKitOrg/EK-OmniProbe/releases/latest)
+- [项目主页](https://github.com/zuoliangyu/MICU-OmniProbe)
+- [下载最新版](https://github.com/zuoliangyu/MICU-OmniProbe/releases/latest)

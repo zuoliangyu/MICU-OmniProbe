@@ -67,7 +67,7 @@ int main(void) {
 ### 4. 烧录并查看
 
 1. 编译并烧录固件到目标芯片
-2. 打开 EK-OmniProbe 软件
+2. 打开 MICU-OmniProbe 软件
 3. 切换到 **RTT 模式**（点击左侧模式轨道的 RTT 按钮或按 `Ctrl+2`）
 4. 在右侧配置检查器选择探针和目标芯片
 5. 点击 "连接 RTT" 按钮建立连接
@@ -457,7 +457,7 @@ int main(void) {
     SEGGER_RTT_ConfigUpBuffer(0, NULL, NULL, 0, SEGGER_RTT_MODE_NO_BLOCK_SKIP);
 
     LOG_I("============================");
-    LOG_I("  EK-OmniProbe RTT Demo");
+    LOG_I("  MICU-OmniProbe RTT Demo");
     LOG_I("============================");
     LOG_I("系统时钟: %d MHz", SystemCoreClock / 1000000);
 
@@ -496,4 +496,4 @@ int main(void) {
 
 - [SEGGER RTT 官方文档](https://www.segger.com/products/debug-probes/j-link/technology/about-real-time-transfer/)
 - [probe-rs 文档](https://probe.rs/)
-- [EK-OmniProbe 项目主页](https://github.com/zuolan/ZUOLANDAPLINK)
+- [MICU-OmniProbe 项目主页](https://github.com/zuoliangyu/MICU-OmniProbe)

@@ -12,7 +12,7 @@ import {
 
 const AUTHOR_NAME = "左岚";
 const BILIBILI_URL = "https://space.bilibili.com/27619688";
-const PROJECT_GITHUB_URL = "https://github.com/EmbeddedKitOrg/EK-OmniProbe";
+const PROJECT_GITHUB_URL = "https://github.com/zuoliangyu/MICU-OmniProbe";
 
 async function openExternalLink(url: string) {
   try {
@@ -38,7 +38,7 @@ export function AuthorAboutDialog() {
             关于作者
           </DialogTitle>
           <DialogDescription className="text-sm text-[hsl(var(--secondary-foreground))]/88">
-            EK-OmniProbe 由左岚发起并长期维护，下方是作者主页与项目仓库的链接。
+            MICU-OmniProbe 由米醋电子工作室左岚进行维护，下方是作者主页与项目仓库的链接。
           </DialogDescription>
         </DialogHeader>
 
@@ -47,7 +47,7 @@ export function AuthorAboutDialog() {
             <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">作者</div>
             <div className="mt-1 text-xl font-semibold text-foreground">{AUTHOR_NAME}</div>
             <p className="mt-1 text-sm leading-5 text-muted-foreground">
-              专注嵌入式工具链与桌面端开发，主导 EK-OmniProbe 的功能设计与核心实现。
+              专注嵌入式工具链与桌面端开发，主导 MICU-OmniProbe 的功能设计与核心实现。
             </p>
           </section>
 

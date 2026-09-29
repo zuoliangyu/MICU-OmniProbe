@@ -1,15 +1,15 @@
 ---
-name: ek-omniprobe-ai
-description: 通过 EK-OmniProbe 本机 TCP/NDJSON 桥接读取串口文本与标准样本、分析日志和波形，并安全调节设备参数。用户要求观察串口数据、分析诊断输出、传感器或控制波形、评估调参效果、建议 PID 等参数、自动或半自动调参时使用。
+name: micu-omniprobe-ai
+description: 通过 MICU-OmniProbe 本机 TCP/NDJSON 桥接读取串口文本与标准样本、分析日志和波形，并安全调节设备参数。用户要求观察串口数据、分析诊断输出、传感器或控制波形、评估调参效果、建议 PID 等参数、自动或半自动调参时使用。
 ---
 
-# EK-OmniProbe AI 调参
+# MICU-OmniProbe AI 调参
 
 使用本 Skill 目录下的 `scripts/client.py`。只使用 Python 标准库。
 
 ## 准备
 
-要求用户在 EK-OmniProbe 串口工作台中：
+要求用户在 MICU-OmniProbe 串口工作台中：
 
 1. 连接设备并开始接收。
 2. 如需分析波形，启用图表解析并确认字段正确；只分析文本时可跳过。

@@ -1,6 +1,6 @@
 # 示例工程
 
-EK-OmniProbe 的目标固件示例，方便快速验证 RTT / 烧录链路。
+MICU-OmniProbe 的目标固件示例，方便快速验证 RTT / 烧录链路。
 
 | 示例 | 平台 | 说明 |
 |------|------|------|
@@ -14,4 +14,4 @@ EK-OmniProbe 的目标固件示例，方便快速验证 RTT / 烧录链路。
 - **GigaDevice (GD32)**：[https://www.gd32mcu.com](https://www.gd32mcu.com) → 开发资源 → Keil 设备包
 - **WHXY (CW32)**：[https://www.whxy.com](https://www.whxy.com) → 资源下载
 
-EK-OmniProbe 的烧录功能通过应用内的「Pack 导入」加载这些 Pack 文件，详见主 README 的 CMSIS-Pack 章节。
+MICU-OmniProbe 的烧录功能通过应用内的「Pack 导入」加载这些 Pack 文件，详见主 README 的 CMSIS-Pack 章节。

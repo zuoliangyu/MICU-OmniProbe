@@ -221,7 +221,7 @@ export function BinaryProtocolDesigner({
   const exportProtocol = async () => {
     try {
       await exportJson(
-        JSON.stringify({ format: "EK-OmniProbe binary protocol", version: 1, protocol: draft }, null, 2),
+        JSON.stringify({ format: "MICU-OmniProbe binary protocol", version: 1, protocol: draft }, null, 2),
         `${safeFileName(draft.name)}.json`
       );
       setStatus("协议配置已导出");

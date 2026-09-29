@@ -1,4 +1,4 @@
-# EK-OmniProbe - CMSIS-DAP 调试器 udev 规则
+# MICU-OmniProbe - CMSIS-DAP 调试器 udev 规则
 # 安装方法: sudo cp 99-zuolan-daplink.rules /etc/udev/rules.d/
 # 重新加载: sudo udevadm control --reload-rules && sudo udevadm trigger
 
