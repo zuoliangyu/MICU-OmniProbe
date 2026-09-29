@@ -89,7 +89,6 @@ export function BleSidebar() {
     }))
   );
 
-  const stats = useBluetoothStats();
   const addLog = useLogStore((s) => s.addLog);
 
   const [busy, setBusy] = useState(false);
@@ -489,11 +488,7 @@ export function BleSidebar() {
               <CardHeader className="py-4">
                 <CardTitle className="text-sm">统计信息</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-1 text-xs">
-                <Stat label="接收" value={stats.bytesReceivedFormatted} />
-                <Stat label="发送" value={stats.bytesSentFormatted} />
-                <Stat label="行数" value={String(stats.lineCount)} />
-              </CardContent>
+              <BleStatsContent />
             </Card>
           )}
         </>
@@ -578,6 +573,18 @@ function shortUuid(uuid: string): string {
   const m = uuid.match(/^0000([0-9a-fA-F]{4})-0000-1000-8000-00805f9b34fb$/);
   if (m) return `0x${m[1].toUpperCase()} (16-bit)`;
   return uuid;
+}
+
+/** 统计随每批数据变化，单独订阅，避免整个侧栏跟着数据流按帧重渲染。 */
+function BleStatsContent() {
+  const stats = useBluetoothStats();
+  return (
+    <CardContent className="space-y-1 text-xs">
+      <Stat label="接收" value={stats.bytesReceivedFormatted} />
+      <Stat label="发送" value={stats.bytesSentFormatted} />
+      <Stat label="行数" value={String(stats.lineCount)} />
+    </CardContent>
+  );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

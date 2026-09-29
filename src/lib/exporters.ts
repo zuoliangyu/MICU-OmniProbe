@@ -30,7 +30,7 @@ export async function exportTextAsTxt(content: string, prefix = "output"): Promi
   return saveTextFile(content, `${prefix}-${timestampSuffix()}.txt`, TEXT_FILTERS);
 }
 
-const SESSION_FILTERS: DialogFilter[] = [{ name: "EK 会话记录", extensions: ["ekrec"] }];
+const SESSION_FILTERS: DialogFilter[] = [{ name: "MICU 会话记录", extensions: ["ekrec"] }];
 
 /** 保存采集会话（NDJSON，见 lib/sessionRecord.ts）。 */
 export async function exportSessionFile(content: string, prefix = "session"): Promise<string | null> {

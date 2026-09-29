@@ -188,7 +188,14 @@ export function ColorSettingsDialog({
                         />
                       </div>
                     </div>
-                    <Button variant="ghost" size="icon" onClick={() => removeTag(index)} className="h-8 w-8">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeTag(index)}
+                      className="h-8 w-8"
+                      aria-label="删除标签"
+                      title="删除标签"
+                    >
                       <Trash2 className="h-3 w-3" />
                     </Button>
                   </div>

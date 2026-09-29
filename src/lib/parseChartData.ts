@@ -595,7 +595,7 @@ export function listChartParsers(): ChartParserPlugin[] {
 /**
  * 自动解析（按 JSON → 正则 → KV → 分隔符 顺序尝试）
  */
-export function parseAuto(text: string, config: TelemetryConfig, timestamp = Date.now()): ParseResult {
+function parseAuto(text: string, config: TelemetryConfig, timestamp = Date.now()): ParseResult {
   const jsonResult = parseWithJson(text, config.channels, timestamp);
   if (jsonResult.success) return jsonResult;
 

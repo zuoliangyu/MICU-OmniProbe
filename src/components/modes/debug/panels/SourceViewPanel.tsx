@@ -198,9 +198,7 @@ export function SourceViewPanel() {
 
       {!currentFrame?.file ? (
         <div className="flex flex-1 items-center justify-center px-4 text-center text-xs text-muted-foreground">
-          {currentFrame
-            ? "当前帧无源码位置（PC 不在 DWARF 行表中或未加载 ELF）"
-            : "halt 后从 Call Stack 选一帧查看源码"}
+          {currentFrame ? "当前帧无源码位置（PC 不在 DWARF 行表中或未加载 ELF）" : "暂停后从调用栈选择一帧查看源码"}
         </div>
       ) : loading ? (
         <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">读取中...</div>

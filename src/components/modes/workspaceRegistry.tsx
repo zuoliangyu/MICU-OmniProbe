@@ -11,7 +11,6 @@ import {
   Plug2,
   Radar,
   Terminal,
-  Wifi,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -38,7 +37,7 @@ interface WorkspaceUi {
 const WORKSPACE_UI: Record<AppMode, WorkspaceUi> = {
   flash: { navigationIcon: Zap, headerIcon: Cpu, view: FlashMode },
   rtt: { navigationIcon: Terminal, headerIcon: Radar, view: RttMode },
-  serial: { navigationIcon: Plug2, headerIcon: Wifi, view: SerialMode },
+  serial: { navigationIcon: Plug2, headerIcon: Plug2, view: SerialMode },
   "log-analysis": { navigationIcon: FileSearch, headerIcon: FileSearch, view: LogAnalysisMode },
   bluetooth: { navigationIcon: Bluetooth, headerIcon: Bluetooth, view: BluetoothMode },
   "control-panel": { navigationIcon: LayoutDashboard, headerIcon: LayoutDashboard, view: ControlPanelMode },

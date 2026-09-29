@@ -9,7 +9,13 @@ import type {
   ParseMode,
   WaveformInterpolation,
 } from "@/lib/chartTypes";
-import { isBytesParseMode, isModbusParseMode, PRESET_COLORS } from "@/lib/chartTypes";
+import {
+  isBytesParseMode,
+  isModbusParseMode,
+  MAX_CHART_DATA_POINTS,
+  MIN_CHART_DATA_POINTS,
+  PRESET_COLORS,
+} from "@/lib/chartTypes";
 import { createBinaryProtocolChannels, listChartParsers } from "@/lib/parseChartData";
 import {
   populateEmptyChannelsFromSamples,
@@ -37,7 +43,7 @@ import { BinaryProtocolDesigner } from "@/components/serial/BinaryProtocolDesign
 
 type ChartConfigSection = "basic" | "channels" | "performance" | "display" | "filter";
 
-interface ChartConfigDialogProps {
+export interface ChartConfigDialogProps {
   chartConfig: ChartConfig;
   setChartConfig: (config: ChartConfig) => void;
   trigger?: React.ReactNode;
@@ -995,7 +1001,14 @@ export function ChartConfigDialog({
                   id="maxDataPoints"
                   label="最大数据点数"
                   value={localConfig.maxDataPoints}
-                  onChange={(value) => setLocalConfig({ ...localConfig, maxDataPoints: Math.max(value, 100) })}
+                  min={MIN_CHART_DATA_POINTS}
+                  max={MAX_CHART_DATA_POINTS}
+                  onChange={(value) =>
+                    setLocalConfig({
+                      ...localConfig,
+                      maxDataPoints: Math.min(Math.max(value, MIN_CHART_DATA_POINTS), MAX_CHART_DATA_POINTS),
+                    })
+                  }
                 />
                 <NumberField
                   id="visiblePointLimit"

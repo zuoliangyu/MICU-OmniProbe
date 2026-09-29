@@ -32,7 +32,6 @@ interface FlashState {
   // 自定义烧录地址
   useCustomAddress: boolean;
   customFlashAddress: number;
-  customFlashSize: number;
 
   // 操作
   setFirmwarePath: (path: string | null) => void;
@@ -44,7 +43,6 @@ interface FlashState {
   setEraseMode: (mode: EraseMode) => void;
   setUseCustomAddress: (use: boolean) => void;
   setCustomFlashAddress: (address: number) => void;
-  setCustomFlashSize: (size: number) => void;
   reset: () => void;
 }
 
@@ -64,7 +62,6 @@ export const useFlashStore = create<FlashState>((set, get) => {
 
     useCustomAddress: false,
     customFlashAddress: 0x08000000,
-    customFlashSize: 0,
 
     setFirmwarePath: (firmwarePath) => set({ firmwarePath }),
 
@@ -112,8 +109,6 @@ export const useFlashStore = create<FlashState>((set, get) => {
     setUseCustomAddress: (useCustomAddress) => set({ useCustomAddress }),
 
     setCustomFlashAddress: (customFlashAddress) => set({ customFlashAddress }),
-
-    setCustomFlashSize: (customFlashSize) => set({ customFlashSize }),
 
     reset: () =>
       set({

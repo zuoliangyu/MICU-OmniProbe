@@ -47,7 +47,7 @@ function parseLocalTimestamp(match: RegExpMatchArray): number | null {
 }
 
 /** 解析样本格式：[yyyyMMdd_HH:mm:ss:fff]消息。坏行保留并继承上一行时间。 */
-export function parseTimestampedLogLine(rawLine: string, context: LogLineContext): ImportedLogLine {
+function parseTimestampedLogLine(rawLine: string, context: LogLineContext): ImportedLogLine {
   const match = rawLine.match(TIMESTAMPED_LOG_LINE);
   const parsedTimestamp = match ? parseLocalTimestamp(match) : null;
   const timestamp = parsedTimestamp ?? context.previousTimestamp ?? context.fallbackTimestamp;

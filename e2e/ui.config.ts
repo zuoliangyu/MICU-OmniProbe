@@ -24,14 +24,11 @@ export default defineConfig({
       TAURI_DEV_HMR_PORT: String(devServerPort + 1),
     },
   },
+  // 桌面端应用：UI 验收只使用 1920×1080（见 AGENTS.md「前端 UI 验证」）
   projects: [
     {
       name: "desktop",
-      use: { ...devices["Desktop Edge"], viewport: { width: 1440, height: 900 } },
-    },
-    {
-      name: "narrow",
-      use: { ...devices["Desktop Edge"], viewport: { width: 760, height: 900 } },
+      use: { ...devices["Desktop Edge"], viewport: { width: 1920, height: 1080 } },
     },
   ],
 });

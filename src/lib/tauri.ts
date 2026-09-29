@@ -58,12 +58,28 @@ export async function eraseSector(address: number, size: number): Promise<void> 
   return await invoke("erase_sector", { options: { address, size } });
 }
 
-export async function verifyFirmware(filePath: string): Promise<boolean> {
-  return await invoke<boolean>("verify_firmware", { filePath });
+/** address 与 BIN 自定义烧录地址一致；省略时后端从第一块 Flash 起始地址比对。 */
+export async function verifyFirmware(filePath: string, address?: number): Promise<boolean> {
+  return await invoke<boolean>("verify_firmware", { filePath, address });
 }
 
-export async function readFlash(address: number, size: number): Promise<number[]> {
-  return await invoke<number[]>("read_flash", { options: { address, size } });
+/** 后端以原始二进制返回（ipc::Response），避免大块数据按 JSON 数字数组序列化。 */
+export async function readFlash(address: number, size: number): Promise<Uint8Array> {
+  return new Uint8Array(await invoke<ArrayBuffer>("read_flash", { options: { address, size } }));
+}
+
+/** 把背景图加入 asset 协议白名单，必须在 convertFileSrc 之前调用。 */
+export async function allowImageAsset(path: string): Promise<void> {
+  await invoke("allow_image_asset", { path });
+}
+
+/** 写入二进制文件（扩展名受后端白名单限制）。 */
+export async function writeBinaryFile(path: string, bytes: Uint8Array): Promise<void> {
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  await invoke("write_binary_file", { path, contentBase64: btoa(binary) });
 }
 
 export async function getFirmwareInfo(filePath: string): Promise<FirmwareFileInfo> {

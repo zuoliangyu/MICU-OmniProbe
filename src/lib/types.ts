@@ -92,7 +92,8 @@ export interface FlashOptions {
   skip_erase: boolean;
   reset_after: boolean;
   erase_mode: EraseMode;
-  flash_algorithm?: string; // 可选：指定使用的Flash算法名称
+  use_custom_address?: boolean; // 仅 BIN 格式：使用自定义烧录地址
+  custom_flash_address?: number;
   preverify?: boolean; // 预校验：烧录前检查，跳过已正确的块（加速重复烧录）
 }
 

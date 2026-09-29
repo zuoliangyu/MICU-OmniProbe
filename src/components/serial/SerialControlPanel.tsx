@@ -19,6 +19,8 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Pencil,
+  Pin,
+  PinOff,
   Play,
   Plus,
   Settings2,
@@ -38,6 +40,7 @@ import {
   createSerialControlWidget,
   clampFloatingPanelPosition,
   getSerialControlWidgetInputHelp,
+  getSerialControlWidgetTypeLabel,
   loadSerialControlPanel,
   parseSerialCommandSequence,
   parseSerialControlPanel,
@@ -123,26 +126,31 @@ export function SerialControlPanel({
   sourceDescription,
   onOpenSourceSettings,
 }: SerialControlPanelProps = {}) {
+  // 外部传入 data（RTT 来源）时不订阅串口 store，否则编辑器会被两条数据流一起带着重渲染
   const serialData = useSerialStore(
-    useShallow((state) => ({
-      connected: state.connected,
-      running: state.running,
-      lines: state.lines,
-      autoScroll: state.autoScroll,
-      showTimestamp: state.showTimestamp,
-      timestampFormat: state.timestampFormat,
-      showDirectionPrefix: state.showDirectionPrefix,
-      displayMode: state.displayMode,
-      searchQuery: state.searchQuery,
-      sendSettings: state.sendSettings,
-      chartData: state.chartData,
-      processedChartData: state.processedChartData,
-      filterActive: state.filterActive,
-      chartConfig: state.chartConfig,
-    }))
+    useShallow((state) =>
+      data
+        ? null
+        : {
+            connected: state.connected,
+            running: state.running,
+            lines: state.lines,
+            autoScroll: state.autoScroll,
+            showTimestamp: state.showTimestamp,
+            timestampFormat: state.timestampFormat,
+            showDirectionPrefix: state.showDirectionPrefix,
+            displayMode: state.displayMode,
+            searchQuery: state.searchQuery,
+            sendSettings: state.sendSettings,
+            chartData: state.chartData,
+            processedChartData: state.processedChartData,
+            filterActive: state.filterActive,
+            chartConfig: state.chartConfig,
+          }
+    )
   );
   const setSerialViewMode = useSerialStore((state) => state.setViewMode);
-  const sourceData = data ?? serialData;
+  const sourceData = (data ?? serialData)!;
   const {
     connected,
     sendSettings,
@@ -168,6 +176,8 @@ export function SerialControlPanel({
   const [gesture, setGesture] = useState<{ id: string; mode: "move" | "resize" } | null>(null);
   const [status, setStatus] = useState("等待操作");
   const [inspectorOpen, setInspectorOpen] = useState(true);
+  // 默认停靠在画布右侧，不遮挡画布；需要更大画布时可切换为可拖动的浮动面板
+  const [inspectorFloating, setInspectorFloating] = useState(false);
   const [inspectorPosition, setInspectorPosition] = useState({ x: 0, y: 0 });
   const [runningSequenceId, setRunningSequenceId] = useState<string | null>(null);
   const runningSequenceRef = useRef<string | null>(null);
@@ -817,8 +827,8 @@ export function SerialControlPanel({
                           >
                             <GripVertical className="h-4 w-4" />
                           </button>
-                          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            {widget.type}
+                          <span className="text-xs font-medium text-muted-foreground">
+                            {getSerialControlWidgetTypeLabel(widget.type)}
                           </span>
                           <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px]">
                             {widget.type === "serial-log"
@@ -830,8 +840,10 @@ export function SerialControlPanel({
                                   widget.type === "xy-chart" ||
                                   widget.type === "yt-chart" ||
                                   widget.type === "imu-3d"
-                                ? "RX"
-                                : widget.format.toUpperCase()}
+                                ? "接收"
+                                : widget.format === "hex"
+                                  ? "HEX"
+                                  : "文本"}
                           </span>
                           <div className="ml-auto flex items-center gap-1">
                             <Button
@@ -874,33 +886,57 @@ export function SerialControlPanel({
             )}
           </section>
         </main>
-        {editing && (
+        {editing && (inspectorFloating || inspectorOpen) && (
           <aside
             ref={inspectorRef}
             className={cn(
-              "absolute right-3 top-3 z-20 w-80 max-w-[calc(100%-1.5rem)] overflow-y-auto rounded-[20px] border border-border/70 bg-white/92 p-4 shadow-[0_18px_50px_rgba(42,57,91,0.2)] backdrop-blur transition-opacity duration-200",
-              !inspectorOpen && "pointer-events-none opacity-0"
+              "w-80 overflow-y-auto rounded-[20px] border border-border/70 bg-white p-4 pb-6",
+              inspectorFloating
+                ? "absolute right-3 top-3 z-20 max-w-[calc(100%-1.5rem)] shadow-[0_18px_50px_rgba(42,57,91,0.2)] transition-opacity duration-200"
+                : "min-h-0 shrink-0",
+              inspectorFloating && !inspectorOpen && "pointer-events-none opacity-0"
             )}
-            style={{
-              maxHeight: "min(760px, calc(100% - 1.5rem))",
-              transform: `translate3d(${inspectorPosition.x}px, ${inspectorPosition.y}px, 0)`,
-            }}
+            style={
+              inspectorFloating
+                ? {
+                    maxHeight: "min(760px, calc(100% - 1.5rem))",
+                    transform: `translate3d(${inspectorPosition.x}px, ${inspectorPosition.y}px, 0)`,
+                  }
+                : undefined
+            }
           >
-            <div className="sticky top-0 z-10 -mx-2 -mt-2 mb-4 flex w-[calc(100%+1rem)] items-center gap-1 rounded-xl bg-white/95 p-1">
-              <button
-                type="button"
-                className="flex min-w-0 flex-1 touch-none cursor-grab items-center gap-2 rounded-lg px-1 py-1 text-left text-sm font-medium active:cursor-grabbing"
-                onPointerDown={startInspectorDrag}
-                onPointerMove={dragInspector}
-                onPointerUp={finishInspectorDrag}
-                onPointerCancel={finishInspectorDrag}
-                onKeyDown={moveInspectorWithKeyboard}
-                aria-label="拖动组件属性面板，可使用方向键微调位置"
+            <div className="sticky top-0 z-10 -mx-2 -mt-2 mb-4 flex w-[calc(100%+1rem)] items-center gap-1 rounded-xl bg-white p-1">
+              {inspectorFloating ? (
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 touch-none cursor-grab items-center gap-2 rounded-lg px-1 py-1 text-left text-sm font-medium active:cursor-grabbing"
+                  onPointerDown={startInspectorDrag}
+                  onPointerMove={dragInspector}
+                  onPointerUp={finishInspectorDrag}
+                  onPointerCancel={finishInspectorDrag}
+                  onKeyDown={moveInspectorWithKeyboard}
+                  aria-label="拖动组件属性面板，可使用方向键微调位置"
+                >
+                  <GripHorizontal className="h-4 w-4 text-muted-foreground" />
+                  组件属性
+                  <span className="ml-auto text-[11px] font-normal text-muted-foreground">拖动</span>
+                </button>
+              ) : (
+                <div className="min-w-0 flex-1 px-1 py-1 text-sm font-medium">组件属性</div>
+              )}
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 shrink-0"
+                onClick={() => {
+                  setInspectorPosition({ x: 0, y: 0 });
+                  setInspectorFloating((floating) => !floating);
+                }}
+                title={inspectorFloating ? "停靠到右侧" : "改为浮动面板"}
+                aria-label={inspectorFloating ? "停靠到右侧" : "改为浮动面板"}
               >
-                <GripHorizontal className="h-4 w-4 text-muted-foreground" />
-                组件属性
-                <span className="ml-auto text-[11px] font-normal text-muted-foreground">拖动</span>
-              </button>
+                {inspectorFloating ? <Pin className="h-4 w-4" /> : <PinOff className="h-4 w-4" />}
+              </Button>
               <Button
                 size="icon"
                 variant="ghost"

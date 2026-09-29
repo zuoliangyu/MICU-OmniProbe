@@ -158,6 +158,9 @@ export interface SerialLine extends Omit<RttLine, "channel"> {
   direction: "rx" | "tx";
 }
 
+/** 日志视图可显示的行：RTT 行没有方向，按 rx 处理，无需逐行拷贝补字段。 */
+export type ViewerLine = Omit<SerialLine, "direction"> & { direction?: SerialLine["direction"] };
+
 export interface SerialTerminalLine {
   id: number;
   text: string;

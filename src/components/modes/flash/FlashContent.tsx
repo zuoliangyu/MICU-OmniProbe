@@ -15,13 +15,7 @@ export function FlashContent() {
   const { connected, targetInfo } = useProbeStore(
     useShallow((state) => ({ connected: state.connected, targetInfo: state.targetInfo }))
   );
-  const { chipInfo, selectedFlashAlgorithm, selectFlashAlgorithm } = useChipStore(
-    useShallow((state) => ({
-      chipInfo: state.chipInfo,
-      selectedFlashAlgorithm: state.selectedFlashAlgorithm,
-      selectFlashAlgorithm: state.selectFlashAlgorithm,
-    }))
-  );
+  const chipInfo = useChipStore((state) => state.chipInfo);
   const {
     flashing,
     progress,
@@ -32,12 +26,10 @@ export function FlashContent() {
     resetAfterFlash,
     useCustomAddress,
     customFlashAddress,
-    customFlashSize,
     setVerifyAfterFlash,
     setResetAfterFlash,
     setUseCustomAddress,
     setCustomFlashAddress,
-    setCustomFlashSize,
   } = useFlashStore(
     useShallow((state) => ({
       flashing: state.flashing,
@@ -49,12 +41,10 @@ export function FlashContent() {
       resetAfterFlash: state.resetAfterFlash,
       useCustomAddress: state.useCustomAddress,
       customFlashAddress: state.customFlashAddress,
-      customFlashSize: state.customFlashSize,
       setVerifyAfterFlash: state.setVerifyAfterFlash,
       setResetAfterFlash: state.setResetAfterFlash,
       setUseCustomAddress: state.setUseCustomAddress,
       setCustomFlashAddress: state.setCustomFlashAddress,
-      setCustomFlashSize: state.setCustomFlashSize,
     }))
   );
 
@@ -159,22 +149,13 @@ export function FlashContent() {
             {chipInfo && chipInfo.flash_algorithms.length > 0 ? (
               <div className="space-y-1">
                 {chipInfo.flash_algorithms.map((algo, index) => (
+                  // 烧录算法由 probe-rs 按目标地址自动匹配，这里只列出芯片提供的算法
                   <div
                     key={index}
-                    onClick={() => selectFlashAlgorithm(algo.name)}
-                    className={`flex items-center justify-between text-sm py-2 px-2 rounded cursor-pointer transition-colors ${
-                      selectedFlashAlgorithm === algo.name
-                        ? "bg-primary/10 border border-primary"
-                        : "hover:bg-accent border border-transparent"
-                    }`}
+                    className="flex items-center justify-between rounded border border-transparent px-2 py-2 text-sm"
                   >
                     <span className="font-mono text-xs">{algo.name}</span>
-                    <div className="flex items-center gap-2">
-                      {algo.default && <span className="text-xs text-green-500">默认</span>}
-                      {selectedFlashAlgorithm === algo.name && (
-                        <span className="text-xs text-primary font-medium">✓</span>
-                      )}
-                    </div>
+                    {algo.default && <span className="text-xs text-green-500">默认</span>}
                   </div>
                 ))}
               </div>
@@ -247,10 +228,7 @@ export function FlashContent() {
                           <button
                             onClick={() => {
                               const flashRegion = chipInfo.memory_regions.find((r) => r.kind === "Flash");
-                              if (flashRegion) {
-                                setCustomFlashAddress(flashRegion.address);
-                                setCustomFlashSize(flashRegion.size);
-                              }
+                              if (flashRegion) setCustomFlashAddress(flashRegion.address);
                             }}
                             className="text-xs text-blue-500 hover:text-blue-400"
                           >
@@ -273,31 +251,8 @@ export function FlashContent() {
                       />
                     </div>
 
-                    <div>
-                      <label className="text-xs text-muted-foreground block mb-1">IROM1 大小</label>
-                      <input
-                        type="text"
-                        value={`0x${customFlashSize.toString(16).toUpperCase()}`}
-                        onChange={(e) => {
-                          const value = e.target.value.replace(/^0x/i, "");
-                          const parsed = parseInt(value, 16);
-                          if (!isNaN(parsed)) {
-                            setCustomFlashSize(parsed);
-                          }
-                        }}
-                        className="w-full px-2 py-1 text-xs font-mono bg-background border border-border rounded"
-                        placeholder="0x100000"
-                      />
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {customFlashSize > 0 ? `${formatBytes(customFlashSize)} (${customFlashSize} 字节)` : "未设置"}
-                      </div>
-                    </div>
-
                     <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
-                      <div className="font-medium mb-1">参考 (Keil风格):</div>
-                      <div>• IROM1: 0x08000000, 0x100000 (1MB)</div>
-                      <div>• IRAM1: 0x20000000, 0x1C000 (112KB)</div>
-                      <div className="mt-1 text-[10px]">注：烧录时仅需配置ROM区域</div>
+                      仅对 BIN 固件生效（HEX / ELF 自带地址），烧录与校验都使用该起始地址。
                     </div>
                   </div>
                 )}

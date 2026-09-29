@@ -22,12 +22,16 @@
   --warning: 38 92% 52%;
   --warning-foreground: 28 92% 12%;
   --border: 220 26% 84%;
+  /* 输入框边框跟随各配色的边框色 */
+  --input: var(--border);
   --ring: 224 72% 56%;
   --radius: 1.1rem;
   --surface-0: rgba(255, 255, 255, 0.76);
   --surface-1: rgba(255, 255, 255, 0.92);
   --surface-2: rgba(245, 248, 255, 0.94);
   --surface-3: rgba(235, 241, 255, 0.96);
+  /* 对话框、弹层等浮层必须不透明，避免背后内容透出 */
+  --surface-overlay: hsl(var(--card));
   --shadow-1: 0 10px 30px rgba(73, 93, 142, 0.12);
   --shadow-2: 0 20px 50px rgba(57, 75, 119, 0.16);
   --bg-spot-1: rgba(140, 181, 255, 0.22);
@@ -171,6 +175,12 @@ textarea:focus {
   border: 1px solid hsl(var(--border) / 0.6);
   background: var(--surface-1);
   box-shadow: 0 2px 8px rgba(73, 93, 142, 0.06);
+}
+
+.surface-popover {
+  border: 1px solid hsl(var(--border) / 0.8);
+  background: var(--surface-overlay);
+  box-shadow: 0 12px 32px rgba(34, 48, 79, 0.16);
 }
 
 .surface-control {
@@ -387,11 +397,12 @@ textarea:focus {
   overflow-x: hidden;
   border: 1px solid hsl(var(--border) / 0.9);
   border-radius: 14px;
-  background: var(--surface-1);
+  background: var(--surface-overlay);
   box-shadow: 0 24px 70px rgba(34, 48, 79, 0.22);
 }
 
-.glass-dialog > * {
+/* 关闭按钮自身是 absolute 定位，不能被这里改成 relative */
+.glass-dialog > *:not(.dialog-close) {
   position: relative;
   z-index: 1;
 }
@@ -454,4 +465,12 @@ textarea:focus {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+/* 调试工作台 dockview：默认浅色主题的未激活标签只有 35%~70% 不透明度，对比度不足。
+   双类选择器保证优先级高于按需加载的 dockview.css。 */
+.dockview-theme-light.debug-dock {
+  --dv-activegroup-hiddenpanel-tab-color: rgba(51, 51, 51, 0.82);
+  --dv-inactivegroup-visiblepanel-tab-color: rgba(51, 51, 51, 0.82);
+  --dv-inactivegroup-hiddenpanel-tab-color: rgba(51, 51, 51, 0.62);
 }

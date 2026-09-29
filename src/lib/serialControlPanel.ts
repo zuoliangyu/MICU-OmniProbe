@@ -472,6 +472,11 @@ export const SERIAL_CONTROL_WIDGET_GROUPS = (["发送控制", "数据显示", "�
   })),
 }));
 
+/** 组件类型的中文名（画布标题等处显示，不暴露内部类型 ID）。 */
+export function getSerialControlWidgetTypeLabel(type: SerialControlWidgetType): string {
+  return WIDGET_BY_TYPE[type].label;
+}
+
 export function isSerialControlWidgetType(value: unknown): value is SerialControlWidgetType {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(WIDGET_BY_TYPE, value);
 }

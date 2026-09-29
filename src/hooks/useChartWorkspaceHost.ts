@@ -142,8 +142,14 @@ export function useChartWorkspaceHost({
   useEffect(() => {
     if (!detached) return;
 
+    // 快照引用没变（暂停、无新数据）就跳过：完整快照含数千点，序列化 + IPC 并不便宜。
+    // 其余推送路径（创建、就绪、唤起）总是强制推送，因此这里只需记住最近一次定时推送的引用。
+    let lastSent: ChartWorkspaceSnapshot | null = null;
     const intervalId = window.setInterval(() => {
-      void emitTo(windowLabel, CHART_WORKSPACE_SNAPSHOT_EVENT, snapshotRef.current).catch(() => undefined);
+      const current = snapshotRef.current;
+      if (current === lastSent) return;
+      lastSent = current;
+      void emitTo(windowLabel, CHART_WORKSPACE_SNAPSHOT_EVENT, current).catch(() => undefined);
     }, pushIntervalMs);
 
     return () => window.clearInterval(intervalId);

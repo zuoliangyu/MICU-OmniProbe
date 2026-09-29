@@ -25,17 +25,17 @@ import {
   Columns,
   Tags,
 } from "lucide-react";
-import { ChartConfigDialog } from "@/components/rtt/ChartConfigDialog";
+import { LazyChartConfigDialog } from "@/components/lazyDialogs";
 import { ColorSettingsDialog } from "@/components/rtt/ColorSettingsDialog";
 import { SessionRecordControls } from "@/components/rtt/SessionRecordControls";
 import { RxFramingSettingsPanel } from "@/components/rtt/RxFramingSettingsPanel";
 import { TriggerSettingsPanel } from "@/components/rtt/TriggerSettingsPanel";
-import { detectChartConfig } from "@/lib/chartAnalysis";
+import { detectChartConfig, recentChartSamples } from "@/lib/chartAnalysis";
 import { exportSerialLinesAsTxt, exportSerialLinesAsCsv } from "@/lib/exporters";
 import { copyAllLines, formatSerialLineForCopy } from "@/lib/viewerCopy";
 import { useShallow } from "zustand/react/shallow";
 import { AiBridgeControl, AiSkillLink } from "./AiBridgeControl";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { formatTimestamp } from "@/lib/formatters";
 
 const TIMESTAMP_PREVIEW_TIME = Date.UTC(2024, 0, 2, 3, 4, 5, 678);
@@ -134,6 +134,10 @@ export function SerialToolbar() {
   const lineCount = useSerialStore((state) => state.lines.length);
   // 只有图表配置对话框打开时才需要实时样本；关闭时返回稳定空引用。
   const chartSampleLines = useSerialStore((state) => (chartConfigOpen ? state.lines : NO_SAMPLE_LINES));
+  const chartSamples = useMemo(
+    () => recentChartSamples(chartSampleLines, 20, (line) => line.direction === "rx"),
+    [chartSampleLines]
+  );
 
   // Start serial polling
   const handleStart = async () => {
@@ -595,17 +599,14 @@ export function SerialToolbar() {
             </div>
           </PopoverContent>
         </Popover>
-        <ChartConfigDialog
+        <LazyChartConfigDialog
           chartConfig={chartConfig}
           setChartConfig={setChartConfig}
           title="串口图表配置"
           allowBytesParsers
           allowDataFilter
           allowParserConfig={false}
-          samples={chartSampleLines
-            .filter((line) => line.direction === "rx")
-            .slice(-20)
-            .map(({ text, rawData }) => ({ text, rawData }))}
+          samples={chartSamples}
           open={chartConfigOpen}
           onOpenChange={setChartConfigOpen}
           trigger={null}

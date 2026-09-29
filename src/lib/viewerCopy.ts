@@ -8,11 +8,11 @@
 // 浏览器原生选区只能拿到 DOM 里还存在的节点。所以选区/全选都改成按"行号区间"
 // 从数据数组重建文本，彻底绕开虚拟化。
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import type { RttLine } from "./types";
-import type { SerialLine } from "./serialTypes";
+import type { ViewerLine } from "./serialTypes";
 import { DEFAULT_TIMESTAMP_FORMAT, formatTime, formatTimestamp } from "./formatters";
 
 export type CopyLog = (level: "info" | "warn", message: string) => void;
@@ -49,13 +49,13 @@ export function formatRttLineForCopy(line: RttLine, showTimestamp: boolean): str
 
 /** 按界面显示样式把串口行转成可复制文本 */
 export function formatSerialLineForCopy(
-  line: SerialLine,
+  line: ViewerLine,
   showTimestamp: boolean,
   showDirectionPrefix: boolean,
   timestampFormat = DEFAULT_TIMESTAMP_FORMAT
 ): string {
   const ts = showTimestamp ? `[${formatTimestamp(line.timestamp.getTime(), timestampFormat)}] ` : "";
-  const dir = showDirectionPrefix ? (line.direction === "rx" ? "【RX】 " : "【TX】 ") : "";
+  const dir = showDirectionPrefix ? (line.direction === "tx" ? "【TX】 " : "【RX】 ") : "";
   return `${ts}${dir}${line.text}`;
 }
 
@@ -99,10 +99,9 @@ export function copyAllLines<T>(lines: T[], formatLine: (line: T) => string, log
   return copyTextToClipboard(lines.map(formatLine).join("\n"), "全部", log);
 }
 
-export interface SelectedRange {
-  start: number;
-  end: number;
-}
+import { indexRangeFromIds, type SelectedRange, type ViewerLineId } from "./viewerSelectionRange";
+
+export type { SelectedRange };
 
 /** 从 DOM 节点向上找最近的 data-line-index / data-index */
 function findLineIndex(node: Node | null, container: HTMLElement): number | null {
@@ -116,6 +115,10 @@ function findLineIndex(node: Node | null, container: HTMLElement): number | null
   return null;
 }
 
+function idAt(lines: readonly ViewerLineId[], index: number | null): number | null {
+  return index == null ? null : (lines[index]?.id ?? null);
+}
+
 function isEditableTarget(): boolean {
   const el = document.activeElement;
   if (!el) return false;
@@ -124,35 +127,49 @@ function isEditableTarget(): boolean {
 }
 
 /**
- * 给虚拟列表视图提供"按行号"的选区能力：
+ * 给虚拟列表视图提供"按行"的选区能力：
  *  - 在容器上挂 ref（scrollRef）
- *  - 拖拽期间记录起止行号（mousedown→mousemove），即使中途滚动、行被卸载也不丢
- *  - highlight：跨行拖拽 / 全选时返回行号区间，供视图自绘高亮（不依赖原生选区，
+ *  - 拖拽期间记录起止行的 id（mousedown→mousemove），即使中途滚动、行被卸载也不丢；
+ *    缓冲区满后头部会被裁剪、下标整体前移，记 id 才能让高亮和复制内容不跟着漂移
+ *  - highlight：跨行拖拽 / 全选时返回当前下标区间，供视图自绘高亮（不依赖原生选区，
  *    滚动卸载也不掉色）；单行选择返回 null，把字符级高亮留给原生选区
  *  - Ctrl+A：仅当该视图已聚焦时拦截，标记"全选"并高亮整段
  *  - getSelectedRange()：全选 → 整段；拖拽 → 起止区间；否则回退到当前 DOM 选区
  *
  * 不接管 Ctrl+C —— 由各 viewer 自己处理（串口有 RX/TX 等多种复制模式）。
+ * lines 需按 id 递增排列（store 追加顺序即如此，过滤后仍保持）。
  */
-export function useViewerSelection(lineCount: number) {
+export function useViewerSelection(lines: readonly ViewerLineId[]) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const hasLines = lineCount > 0;
+  const hasLines = lines.length > 0;
   const dragStart = useRef<number | null>(null);
   const dragEnd = useRef<number | null>(null);
   const selectAll = useRef(false);
-  const lineCountRef = useRef(lineCount);
-  lineCountRef.current = lineCount;
+  const linesRef = useRef(lines);
+  useEffect(() => {
+    linesRef.current = lines;
+  }, [lines]);
 
-  // 供渲染用的高亮区间：仅跨行拖拽 / 全选时非空；单行交给原生选区做字符级高亮。
+  // 供渲染用的高亮 id 区间：仅跨行拖拽 / 全选时非空；单行交给原生选区做字符级高亮。
   // 用 ref 镜像一份，避免在事件回调里重复 setState 触发无谓重渲染。
-  const [highlight, setHighlightState] = useState<SelectedRange | null>(null);
-  const highlightRef = useRef<SelectedRange | null>(null);
-  const setHighlight = useCallback((r: SelectedRange | null) => {
+  const [highlightIds, setHighlightState] = useState<SelectedRange | "all" | null>(null);
+  const highlightRef = useRef<SelectedRange | "all" | null>(null);
+  const setHighlight = useCallback((r: SelectedRange | "all" | null) => {
     const cur = highlightRef.current;
-    if (cur?.start === r?.start && cur?.end === r?.end) return;
+    if (cur === r || (cur && r && cur !== "all" && r !== "all" && cur.start === r.start && cur.end === r.end)) return;
     highlightRef.current = r;
     setHighlightState(r);
   }, []);
+
+  const highlight = useMemo(
+    () =>
+      highlightIds === "all"
+        ? lines.length > 0
+          ? { start: 0, end: lines.length - 1 }
+          : null
+        : highlightIds && indexRangeFromIds(lines, highlightIds.start, highlightIds.end),
+    [highlightIds, lines]
+  );
 
   // 拖拽追踪
   useEffect(() => {
@@ -161,9 +178,9 @@ export function useViewerSelection(lineCount: number) {
     const onDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
       selectAll.current = false;
-      const i = findLineIndex(e.target as Node, c);
-      dragStart.current = i;
-      dragEnd.current = i;
+      const id = idAt(linesRef.current, findLineIndex(e.target as Node, c));
+      dragStart.current = id;
+      dragEnd.current = id;
       setHighlight(null); // 新一次按下先清旧高亮，让原生选区从头开始
     };
     const onDocumentDown = (e: MouseEvent) => {
@@ -175,11 +192,11 @@ export function useViewerSelection(lineCount: number) {
     };
     const onMove = (e: MouseEvent) => {
       if (dragStart.current == null || (e.buttons & 1) === 0) return;
-      const i = findLineIndex(e.target as Node, c);
-      if (i == null) return;
-      dragEnd.current = i;
-      const start = Math.min(dragStart.current, i);
-      const end = Math.max(dragStart.current, i);
+      const id = idAt(linesRef.current, findLineIndex(e.target as Node, c));
+      if (id == null) return;
+      dragEnd.current = id;
+      const start = Math.min(dragStart.current, id);
+      const end = Math.max(dragStart.current, id);
       // 单行不画行级高亮（避免和原生半行选区冲突）；跨行才接管
       setHighlight(start === end ? null : { start, end });
     };
@@ -215,22 +232,21 @@ export function useViewerSelection(lineCount: number) {
       dragEnd.current = null;
       // 行级高亮整段（不依赖虚拟化下的 DOM 原生选区）
       window.getSelection()?.removeAllRanges();
-      const count = lineCountRef.current;
-      setHighlight(count > 0 ? { start: 0, end: count - 1 } : null);
+      setHighlight("all");
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [isInside, setHighlight]);
 
   const getSelectedRange = useCallback((): SelectedRange | null => {
-    const count = lineCountRef.current;
+    const current = linesRef.current;
     if (selectAll.current) {
-      return count > 0 ? { start: 0, end: count - 1 } : null;
+      return current.length > 0 ? { start: 0, end: current.length - 1 } : null;
     }
     const a = dragStart.current;
     const b = dragEnd.current;
     if (a != null && b != null) {
-      return { start: Math.min(a, b), end: Math.max(a, b) };
+      return indexRangeFromIds(current, Math.min(a, b), Math.max(a, b));
     }
     // 回退：当前 DOM 选区（仅适用于未滚动、全在可视区的小范围选择）
     const c = scrollRef.current;
@@ -256,11 +272,13 @@ export function useViewerSelection(lineCount: number) {
 
   const selectLine = useCallback(
     (index: number) => {
+      const id = linesRef.current[index]?.id;
+      if (id == null) return;
       window.getSelection()?.removeAllRanges();
       selectAll.current = false;
-      dragStart.current = index;
-      dragEnd.current = index;
-      setHighlight({ start: index, end: index });
+      dragStart.current = id;
+      dragEnd.current = id;
+      setHighlight({ start: id, end: id });
     },
     [setHighlight]
   );

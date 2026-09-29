@@ -1,60 +1,45 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 
 /**
- * 用户活动检测Hook
- * 监听用户的鼠标、键盘等交互事件，判断用户是否活跃
+ * 用户空闲检测Hook
+ * 监听用户的鼠标、键盘等交互事件，连续 timeoutMs 无操作时调用 onIdle。
+ * 活动时间只写 ref、用单个 setTimeout 判定，不会因为鼠标移动或计时触发重渲染。
  */
-export function useUserActivity(timeoutMs: number = 10000) {
-  const [isActive, setIsActive] = useState(true);
-  const [timeRemaining, setTimeRemaining] = useState(timeoutMs);
-  const lastActivityRef = useRef(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // 更新活动时间
-  const updateActivity = useCallback(() => {
-    lastActivityRef.current = Date.now();
-    setIsActive(true);
-    setTimeRemaining(timeoutMs);
-  }, [timeoutMs]);
+export function useIdleTimeout(timeoutMs: number, onIdle: () => void) {
+  const onIdleRef = useRef(onIdle);
+  useEffect(() => {
+    onIdleRef.current = onIdle;
+  }, [onIdle]);
 
   useEffect(() => {
-    lastActivityRef.current = Date.now();
-    // 监听的事件类型
-    const events = ["mousedown", "mousemove", "keydown", "scroll", "touchstart", "click", "wheel"];
+    let lastActivity = Date.now();
+    let timer: ReturnType<typeof setTimeout>;
 
-    // 添加事件监听器
-    events.forEach((event) => {
-      window.addEventListener(event, updateActivity, { passive: true });
-    });
-
-    // 启动定时器，每秒检查一次
-    timerRef.current = setInterval(() => {
-      const elapsed = Date.now() - lastActivityRef.current;
-      const remaining = Math.max(0, timeoutMs - elapsed);
-
-      setTimeRemaining(remaining);
-
-      if (elapsed >= timeoutMs) {
-        setIsActive(false);
+    const check = () => {
+      const remaining = timeoutMs - (Date.now() - lastActivity);
+      if (remaining <= 0) {
+        onIdleRef.current();
+        return;
       }
-    }, 1000);
+      timer = setTimeout(check, remaining);
+    };
 
-    // 清理
+    const updateActivity = () => {
+      lastActivity = Date.now();
+    };
+
+    // scroll 不冒泡，用捕获阶段才能收到内部面板的滚动
+    const events = ["mousedown", "mousemove", "keydown", "scroll", "touchstart", "click", "wheel"];
+    events.forEach((event) => {
+      window.addEventListener(event, updateActivity, { passive: true, capture: true });
+    });
+    timer = setTimeout(check, timeoutMs);
+
     return () => {
       events.forEach((event) => {
-        window.removeEventListener(event, updateActivity);
+        window.removeEventListener(event, updateActivity, { capture: true });
       });
-
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
+      clearTimeout(timer);
     };
-  }, [timeoutMs, updateActivity]);
-
-  return {
-    isActive,
-    timeRemaining,
-    timeRemainingSeconds: Math.ceil(timeRemaining / 1000),
-    resetActivity: updateActivity,
-  };
+  }, [timeoutMs]);
 }

@@ -6,30 +6,40 @@ import { RttChartViewer } from "./RttChartViewer";
 import { Panel, Group, Separator } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { AlertCircle, FileText, Link } from "lucide-react";
-import type { ComponentType, ReactNode } from "react";
 import { useChartWorkspaceControls } from "@/hooks/useChartWorkspaceHost";
 import { useShallow } from "zustand/react/shallow";
 import { ChartDetachedPlaceholder, ChartWindowActions } from "./ChartWindowControls";
+import { PanelHintCard, PanelShell } from "@/components/layout/PanelShell";
 
 interface RttPanelProps {
   className?: string;
 }
 
 export function RttPanel({ className }: RttPanelProps) {
-  const { error, viewMode, splitRatio, splitOrientation, setSplitRatio, rttConnected, isRunning, lines, chartConfig } =
-    useRttStore(
-      useShallow((state) => ({
-        error: state.error,
-        viewMode: state.viewMode,
-        splitRatio: state.splitRatio,
-        splitOrientation: state.splitOrientation,
-        setSplitRatio: state.setSplitRatio,
-        rttConnected: state.rttConnected,
-        isRunning: state.isRunning,
-        lines: state.lines,
-        chartConfig: state.chartConfig,
-      }))
-    );
+  const {
+    error,
+    viewMode,
+    splitRatio,
+    splitOrientation,
+    setSplitRatio,
+    rttConnected,
+    isRunning,
+    hasLines,
+    chartConfig,
+  } = useRttStore(
+    useShallow((state) => ({
+      error: state.error,
+      viewMode: state.viewMode,
+      splitRatio: state.splitRatio,
+      splitOrientation: state.splitOrientation,
+      setSplitRatio: state.setSplitRatio,
+      rttConnected: state.rttConnected,
+      isRunning: state.isRunning,
+      // 只取布尔值：订阅整个 lines 会让面板随每批数据重渲染
+      hasLines: state.lines.length > 0,
+      chartConfig: state.chartConfig,
+    }))
+  );
   const isVerticalSplit = splitOrientation === "vertical";
 
   const {
@@ -51,7 +61,7 @@ export function RttPanel({ className }: RttPanelProps) {
           title: "RTT 已连接，等待启动",
           description: "点击工具栏里的“启动”，开始扫描控制块并接收通道数据。",
         }
-      : lines.length === 0
+      : !hasLines
         ? {
             icon: FileText,
             title: "RTT 正在运行，等待目标输出",
@@ -65,7 +75,8 @@ export function RttPanel({ className }: RttPanelProps) {
       {/* 工具栏 */}
       <RttToolbar />
 
-      {workflowHint && (
+      {/* 文本/分屏视图里日志区的空状态已给出同样的提示，顶部流程提示只在纯图表视图显示 */}
+      {workflowHint && viewMode === "chart" && (
         <PanelHintCard icon={workflowHint.icon} title={workflowHint.title} description={workflowHint.description} />
       )}
 
@@ -152,52 +163,6 @@ export function RttPanel({ className }: RttPanelProps) {
 
       {/* 状态栏 */}
       <RttStatusBar />
-    </div>
-  );
-}
-
-interface PanelHintCardProps {
-  icon: ComponentType<{ className?: string }>;
-  title: string;
-  description: string;
-}
-
-function PanelHintCard({ icon: Icon, title, description }: PanelHintCardProps) {
-  return (
-    <div className="flex items-center gap-2 rounded-[18px] border border-border/60 bg-white/60 px-3 py-2 text-sm shadow-[0_6px_14px_rgba(73,93,142,0.05)]">
-      <div className="rounded-full bg-primary/10 p-1.5 text-primary">
-        <Icon className="h-3.5 w-3.5" />
-      </div>
-      <span className="font-medium text-foreground">{title}</span>
-      <span className="min-w-0 flex-1 text-xs text-muted-foreground">{description}</span>
-    </div>
-  );
-}
-
-interface PanelShellProps {
-  title: string;
-  subtitle: string;
-  badge: string;
-  actions?: ReactNode;
-  children: ReactNode;
-}
-
-function PanelShell({ title, subtitle, badge, actions, children }: PanelShellProps) {
-  return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[28px] border border-border/60 bg-white/75 shadow-[0_12px_26px_rgba(73,93,142,0.08)] backdrop-blur">
-      <div className="panel-shell-header flex items-center justify-between gap-3 border-b border-border/60 bg-muted/20 px-4 py-3">
-        <div>
-          <div className="text-sm font-medium text-foreground">{title}</div>
-          <div className="panel-shell-subtitle text-xs text-muted-foreground">{subtitle}</div>
-        </div>
-        <div className="flex items-center gap-2">
-          {actions}
-          <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground">
-            {badge}
-          </span>
-        </div>
-      </div>
-      <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
     </div>
   );
 }

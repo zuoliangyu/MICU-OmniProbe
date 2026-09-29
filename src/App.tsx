@@ -5,7 +5,7 @@ import { WORKSPACE_BY_MODE } from "./components/modes";
 import { SerialSidebar } from "./components/serial";
 import { BleSidebar } from "./components/bluetooth";
 import { UdevPermissionDialog } from "./components/dialogs/UdevPermissionDialog";
-import { useEffect, useCallback, useMemo, useState, lazy, Suspense, type CSSProperties } from "react";
+import { useEffect, useCallback, useMemo, useRef, useState, lazy, Suspense, type CSSProperties } from "react";
 import { useLogStore } from "./stores/logStore";
 import { useProbeStore } from "./stores/probeStore";
 import { useRttStore } from "./stores/rttStore";
@@ -13,8 +13,8 @@ import { useSerialStore } from "./stores/serialStore";
 import { useBluetoothStore } from "./stores/bluetoothStore";
 import { useAppStore } from "./stores/appStore";
 import { useFlashStore } from "./stores/flashStore";
-import { useUserActivity } from "./hooks/useUserActivity";
-import { disconnect, initPacks } from "./lib/tauri";
+import { useIdleTimeout } from "./hooks/useUserActivity";
+import { allowImageAsset, disconnect, initPacks } from "./lib/tauri";
 import { applyThemeSchemeToDocument } from "./lib/themeSchemes";
 import { useThemeStore } from "./stores/themeStore";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -31,6 +31,7 @@ import { useSerialEvents } from "./hooks/useSerialEvents";
 import { useBluetoothEvents } from "./hooks/useBluetoothEvents";
 import { useChartWorkspaceHost } from "./hooks/useChartWorkspaceHost";
 import { useShallow } from "zustand/react/shallow";
+import type { TelemetryChartState } from "./stores/telemetryChartSlice";
 
 function App() {
   const popupSource = useMemo(() => {
@@ -53,11 +54,6 @@ function MainApp() {
   const [inspectorOpen, setInspectorOpen] = useState(() => !window.matchMedia("(max-width: 1100px)").matches);
   const [inspectorWidth, setInspectorWidth] = useState(288);
   const addLog = useLogStore((state) => state.addLog);
-  const connected = useProbeStore((s) => s.connected);
-  const autoDisconnect = useProbeStore((s) => s.autoDisconnect);
-  const autoDisconnectTimeout = useProbeStore((s) => s.autoDisconnectTimeout);
-  const setConnected = useProbeStore((s) => s.setConnected);
-  const rttRunning = useRttStore((s) => s.isRunning);
   const flashing = useFlashStore((s) => s.flashing);
   const mode = useAppStore((s) => s.mode);
   const WorkspaceView = WORKSPACE_BY_MODE[mode].view;
@@ -66,20 +62,40 @@ function MainApp() {
   const backgroundMode = useUiPreferencesStore((s) => s.backgroundMode);
   const backgroundImagePath = useUiPreferencesStore((s) => s.backgroundImagePath);
   const backgroundImageOpacity = useUiPreferencesStore((s) => s.backgroundImageOpacity);
-  const { isActive, timeRemainingSeconds } = useUserActivity(autoDisconnectTimeout);
-  const backgroundImageUrl = useMemo(() => {
+  const [backgroundImageUrl, setBackgroundImageUrl] = useState("");
+
+  // asset 协议默认不放行任何文件：先让后端授权这一张图，再生成 asset:// 地址。
+  // 授权失败（文件被删、扩展名不合法等）时退回默认背景。
+  useEffect(() => {
     if (backgroundMode !== "custom" || !backgroundImagePath) {
-      return "";
+      setBackgroundImageUrl("");
+      return;
     }
 
-    return convertFileSrc(backgroundImagePath);
-  }, [backgroundMode, backgroundImagePath]);
+    let cancelled = false;
+    allowImageAsset(backgroundImagePath)
+      .then(() => {
+        if (!cancelled) setBackgroundImageUrl(convertFileSrc(backgroundImagePath));
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setBackgroundImageUrl("");
+        addLog("warn", `背景图片无法加载，已使用默认背景: ${error}`);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [addLog, backgroundMode, backgroundImagePath]);
 
   useEffect(() => {
     applyThemeSchemeToDocument(schemeId);
   }, [schemeId]);
 
+  // 开发模式 StrictMode 会把 effect 执行两次；启动日志与 Pack 加载只需要一次
+  const startedRef = useRef(false);
   useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
     addLog("info", "MICU-OmniProbe 已启动");
     addLog("info", "等待连接调试探针...");
 
@@ -214,38 +230,10 @@ function MainApp() {
     return () => compactLayout.removeEventListener("change", collapseInspector);
   }, []);
 
-  // Auto-disconnect logic
-  useEffect(() => {
-    // If auto-disconnect is disabled, not connected, or RTT is running, don't auto-disconnect
-    if (!autoDisconnect || !connected || rttRunning) {
-      return;
-    }
-
-    // If user is inactive, perform auto-disconnect
-    if (!isActive) {
-      void (async () => {
-        try {
-          await disconnect();
-          setConnected(false);
-          addLog("info", `检测到 ${autoDisconnectTimeout / 1000} 秒无操作，已自动断开连接`);
-        } catch (error) {
-          addLog("error", `自动断开失败: ${error}`);
-        }
-      })();
-    }
-  }, [addLog, autoDisconnect, autoDisconnectTimeout, connected, isActive, rttRunning, setConnected]);
-
-  // Show countdown hint (last 5 seconds)
-  useEffect(() => {
-    if (autoDisconnect && connected && !rttRunning && timeRemainingSeconds > 0 && timeRemainingSeconds <= 5) {
-      // Can add countdown UI hint here
-      // e.g.: show a toast or display countdown in TopBar
-    }
-  }, [autoDisconnect, connected, rttRunning, timeRemainingSeconds]);
-
   return (
     <div className="app-shell relative h-screen overflow-hidden text-foreground">
       <ChartWorkspaceHosts />
+      <AutoDisconnectGate />
       {backgroundImageUrl && (
         <div
           className="app-background-image"
@@ -334,7 +322,28 @@ function ChartWorkspaceHosts() {
   );
 }
 
-function RttChartWorkspaceHost() {
+/** 图表宿主只需要切片里的这几项；三条来源共用同一个选择器。 */
+function selectChartHostState(state: TelemetryChartState) {
+  return {
+    chartData: state.chartData,
+    processedChartData: state.processedChartData,
+    filterActive: state.filterActive,
+    chartConfig: state.chartConfig,
+    chartPaused: state.chartPaused,
+    parseSuccessCount: state.parseSuccessCount,
+    parseFailCount: state.parseFailCount,
+    setChartPaused: state.setChartPaused,
+    clearChartData: state.clearChartData,
+    setChartConfig: state.setChartConfig,
+  };
+}
+
+function useTelemetryChartHost(
+  source: ChartWorkspaceSource,
+  title: string,
+  subtitle: string,
+  state: ReturnType<typeof selectChartHostState>
+) {
   const {
     chartData,
     processedChartData,
@@ -346,25 +355,12 @@ function RttChartWorkspaceHost() {
     setChartPaused,
     clearChartData,
     setChartConfig,
-  } = useRttStore(
-    useShallow((state) => ({
-      chartData: state.chartData,
-      processedChartData: state.processedChartData,
-      filterActive: state.filterActive,
-      chartConfig: state.chartConfig,
-      chartPaused: state.chartPaused,
-      parseSuccessCount: state.parseSuccessCount,
-      parseFailCount: state.parseFailCount,
-      setChartPaused: state.setChartPaused,
-      clearChartData: state.clearChartData,
-      setChartConfig: state.setChartConfig,
-    }))
-  );
+  } = state;
   const snapshot = useMemo(
     () => ({
-      source: "rtt" as const,
-      title: "RTT 图表工作台",
-      subtitle: "波形、FFT、字段管理与缓冲控制。",
+      source,
+      title,
+      subtitle,
       chartData,
       processedChartData: filterActive ? processedChartData : undefined,
       filterActive,
@@ -373,102 +369,67 @@ function RttChartWorkspaceHost() {
       parseSuccessCount,
       parseFailCount,
     }),
-    [chartConfig, chartData, chartPaused, filterActive, parseFailCount, parseSuccessCount, processedChartData]
+    [
+      chartConfig,
+      chartData,
+      chartPaused,
+      filterActive,
+      parseFailCount,
+      parseSuccessCount,
+      processedChartData,
+      source,
+      subtitle,
+      title,
+    ]
   );
 
-  useChartWorkspaceHost({ source: "rtt", snapshot, setChartPaused, clearChartData, setChartConfig });
+  useChartWorkspaceHost({ source, snapshot, setChartPaused, clearChartData, setChartConfig });
+}
+
+function RttChartWorkspaceHost() {
+  const state = useRttStore(useShallow(selectChartHostState));
+  useTelemetryChartHost("rtt", "RTT 图表工作台", "波形、FFT、字段管理与缓冲控制。", state);
   return null;
 }
 
 function SerialChartWorkspaceHost() {
-  const {
-    chartData,
-    processedChartData,
-    filterActive,
-    chartConfig,
-    chartPaused,
-    parseSuccessCount,
-    parseFailCount,
-    setChartPaused,
-    clearChartData,
-    setChartConfig,
-  } = useSerialStore(
-    useShallow((state) => ({
-      chartData: state.chartData,
-      processedChartData: state.processedChartData,
-      filterActive: state.filterActive,
-      chartConfig: state.chartConfig,
-      chartPaused: state.chartPaused,
-      parseSuccessCount: state.parseSuccessCount,
-      parseFailCount: state.parseFailCount,
-      setChartPaused: state.setChartPaused,
-      clearChartData: state.clearChartData,
-      setChartConfig: state.setChartConfig,
-    }))
-  );
-  const snapshot = useMemo(
-    () => ({
-      source: "serial" as const,
-      title: "串口图表工作台",
-      subtitle: "波形、FFT、字段管理与缓冲控制。",
-      chartData,
-      processedChartData: filterActive ? processedChartData : undefined,
-      filterActive,
-      chartConfig,
-      chartPaused,
-      parseSuccessCount,
-      parseFailCount,
-    }),
-    [chartConfig, chartData, chartPaused, filterActive, parseFailCount, parseSuccessCount, processedChartData]
-  );
-
-  useChartWorkspaceHost({ source: "serial", snapshot, setChartPaused, clearChartData, setChartConfig });
+  const state = useSerialStore(useShallow(selectChartHostState));
+  useTelemetryChartHost("serial", "串口图表工作台", "波形、FFT、字段管理与缓冲控制。", state);
   return null;
 }
 
 function BluetoothChartWorkspaceHost() {
-  const {
-    chartData,
-    processedChartData,
-    filterActive,
-    chartConfig,
-    chartPaused,
-    parseSuccessCount,
-    parseFailCount,
-    setChartPaused,
-    clearChartData,
-    setChartConfig,
-  } = useBluetoothStore(
-    useShallow((state) => ({
-      chartData: state.chartData,
-      processedChartData: state.processedChartData,
-      filterActive: state.filterActive,
-      chartConfig: state.chartConfig,
-      chartPaused: state.chartPaused,
-      parseSuccessCount: state.parseSuccessCount,
-      parseFailCount: state.parseFailCount,
-      setChartPaused: state.setChartPaused,
-      clearChartData: state.clearChartData,
-      setChartConfig: state.setChartConfig,
-    }))
-  );
-  const snapshot = useMemo(
-    () => ({
-      source: "bluetooth" as const,
-      title: "蓝牙图表工作台",
-      subtitle: "BLE 波形、FFT、字段管理与缓冲控制。",
-      chartData,
-      processedChartData: filterActive ? processedChartData : undefined,
-      filterActive,
-      chartConfig,
-      chartPaused,
-      parseSuccessCount,
-      parseFailCount,
-    }),
-    [chartConfig, chartData, chartPaused, filterActive, parseFailCount, parseSuccessCount, processedChartData]
-  );
+  const state = useBluetoothStore(useShallow(selectChartHostState));
+  useTelemetryChartHost("bluetooth", "蓝牙图表工作台", "BLE 波形、FFT、字段管理与缓冲控制。", state);
+  return null;
+}
 
-  useChartWorkspaceHost({ source: "bluetooth", snapshot, setChartPaused, clearChartData, setChartConfig });
+/**
+ * 自动断开：只在「开启 + 已连接 + RTT 未运行」时挂载空闲计时。
+ * 独立成组件是为了让计时与活动检测不牵动 MainApp 整棵树重渲染。
+ */
+function AutoDisconnectGate() {
+  const enabled = useProbeStore((s) => s.autoDisconnect && s.connected);
+  const timeoutMs = useProbeStore((s) => s.autoDisconnectTimeout);
+  const rttRunning = useRttStore((s) => s.isRunning);
+  return enabled && !rttRunning ? <AutoDisconnectWatcher timeoutMs={timeoutMs} /> : null;
+}
+
+function AutoDisconnectWatcher({ timeoutMs }: { timeoutMs: number }) {
+  const handleIdle = useCallback(() => {
+    const { addLog } = useLogStore.getState();
+    void (async () => {
+      try {
+        await disconnect();
+        useProbeStore.getState().setConnected(false);
+        addLog("info", `检测到 ${timeoutMs / 1000} 秒无操作，已自动断开连接`);
+      } catch (error) {
+        addLog("error", `自动断开失败: ${error}`);
+      }
+    })();
+  }, [timeoutMs]);
+
+  useIdleTimeout(timeoutMs, handleIdle);
   return null;
 }
 

@@ -25,7 +25,7 @@ import {
   type ChartSample,
 } from "@/lib/chartAnalysis";
 import { listChartParsers } from "@/lib/parseChartData";
-import { ChartConfigDialog } from "@/components/rtt/ChartConfigDialog";
+import { LazyChartConfigDialog } from "@/components/lazyDialogs";
 import { CanSignalEditor } from "@/components/serial/CanSignalEditor";
 import { BinaryProtocolDesigner } from "@/components/serial/BinaryProtocolDesigner";
 import { loadBinaryProtocolLibrary } from "@/lib/binaryProtocolLibrary";
@@ -190,7 +190,7 @@ export function ChartParserPanel({
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
         {allowDataFilter && (
-          <ChartConfigDialog
+          <LazyChartConfigDialog
             chartConfig={chartConfig}
             setChartConfig={setChartConfig}
             title="串口图表设置"

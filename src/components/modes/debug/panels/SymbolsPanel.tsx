@@ -85,7 +85,7 @@ export function SymbolsPanel() {
 
       {empty ? (
         <div className="flex flex-1 items-center justify-center px-4 text-center text-xs text-muted-foreground">
-          点击工具栏「Load ELF…」加载固件以查看符号
+          点击工具栏「加载 ELF…」加载固件以查看符号
         </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">无匹配项</div>

@@ -27,43 +27,46 @@ export function ControlPanelMode() {
       sendSettings: state.sendSettings,
     }))
   );
+  // 只在 RTT 来源时订阅 RTT：串口来源下 RTT 流不该牵动整个控制面板
   const rtt = useRttStore(
-    useShallow((state) => ({
-      connected: state.rttConnected,
-      running: state.isRunning,
-      lines: state.lines,
-      autoScroll: state.autoScroll,
-      showTimestamp: state.showTimestamp,
-      displayMode: state.displayMode,
-      searchQuery: state.searchQuery,
-      chartData: state.chartData,
-      processedChartData: state.processedChartData,
-      filterActive: state.filterActive,
-      chartConfig: state.chartConfig,
-      setViewMode: state.setViewMode,
-    }))
+    useShallow((state) =>
+      source !== "rtt"
+        ? null
+        : {
+            connected: state.rttConnected,
+            running: state.isRunning,
+            lines: state.lines,
+            autoScroll: state.autoScroll,
+            showTimestamp: state.showTimestamp,
+            displayMode: state.displayMode,
+            searchQuery: state.searchQuery,
+            chartData: state.chartData,
+            processedChartData: state.processedChartData,
+            filterActive: state.filterActive,
+            chartConfig: state.chartConfig,
+            setViewMode: state.setViewMode,
+          }
+    )
   );
   const rttData = useMemo(
-    () => ({
-      connected: rtt.connected,
-      running: rtt.running,
-      lines: rtt.lines.map((line) => ({
-        ...line,
-        rawData: line.rawData ?? [],
-        direction: "rx" as const,
-      })),
-      autoScroll: rtt.autoScroll,
-      showTimestamp: rtt.showTimestamp,
-      timestampFormat: "HH:mm:ss.SSS",
-      showDirectionPrefix: false,
-      displayMode: rtt.displayMode,
-      searchQuery: rtt.searchQuery,
-      chartData: rtt.chartData,
-      processedChartData: rtt.processedChartData,
-      filterActive: rtt.filterActive,
-      chartConfig: rtt.chartConfig,
-      sendSettings: serial.sendSettings,
-    }),
+    () =>
+      rtt && {
+        connected: rtt.connected,
+        running: rtt.running,
+        // RttLine 可直接作为 ViewerLine 显示（无方向按 rx），不再逐帧 map 出上万个新对象
+        lines: rtt.lines,
+        autoScroll: rtt.autoScroll,
+        showTimestamp: rtt.showTimestamp,
+        timestampFormat: "HH:mm:ss.SSS",
+        showDirectionPrefix: false,
+        displayMode: rtt.displayMode,
+        searchQuery: rtt.searchQuery,
+        chartData: rtt.chartData,
+        processedChartData: rtt.processedChartData,
+        filterActive: rtt.filterActive,
+        chartConfig: rtt.chartConfig,
+        sendSettings: serial.sendSettings,
+      },
     [rtt, serial.sendSettings]
   );
   const serialDescription =
@@ -81,12 +84,12 @@ export function ControlPanelMode() {
         <SerialControlPanel
           source={source}
           onSourceChange={setSource}
-          data={source === "rtt" ? rttData : undefined}
+          data={rttData ?? undefined}
           sendPayload={source === "rtt" ? unsupportedSend : undefined}
           canSend={source === "serial"}
           sourceDescription={sourceDescription}
           onOpenSourceSettings={() => setSourceSettingsOpen(true)}
-          onOpenChart={source === "rtt" ? () => rtt.setViewMode("chart") : undefined}
+          onOpenChart={rtt ? () => rtt.setViewMode("chart") : undefined}
         />
       </div>
 

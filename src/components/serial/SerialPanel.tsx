@@ -7,13 +7,13 @@ import { ChartViewer } from "@/components/rtt/ChartViewer";
 import { Panel, Group, Separator } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { Activity, AlertCircle, ChevronDown, ChevronUp, FileText } from "lucide-react";
-import type { ComponentType, ReactNode } from "react";
 import { useState } from "react";
 import { useChartWorkspaceControls } from "@/hooks/useChartWorkspaceHost";
 import { useShallow } from "zustand/react/shallow";
 import { ChartDetachedPlaceholder, ChartWindowActions } from "@/components/rtt/ChartWindowControls";
 import type { SerialTextViewMode } from "@/lib/serialTypes";
 import { SerialCanWorkspace } from "./SerialCanWorkspace";
+import { PanelHintCard, PanelShell } from "@/components/layout/PanelShell";
 
 interface SerialPanelProps {
   className?: string;
@@ -109,7 +109,7 @@ export function SerialPanel({ className }: SerialPanelProps) {
     textViewMode,
     connected,
     running,
-    lines,
+    hasLines,
     chartConfig,
   } = useSerialStore(
     useShallow((state) => ({
@@ -122,7 +122,8 @@ export function SerialPanel({ className }: SerialPanelProps) {
       textViewMode: state.textViewMode,
       connected: state.connected,
       running: state.running,
-      lines: state.lines,
+      // 只取布尔值：订阅整个 lines 会让面板随每批数据重渲染
+      hasLines: state.lines.length > 0,
       chartConfig: state.chartConfig,
     }))
   );
@@ -148,7 +149,7 @@ export function SerialPanel({ className }: SerialPanelProps) {
           title: "串口已连接，等待开始接收",
           description: "点击工具栏里的“开始”，即可进入持续接收状态。",
         }
-      : lines.length === 0
+      : !hasLines
         ? {
             icon: FileText,
             title: "串口正在接收，等待数据流入",
@@ -161,7 +162,8 @@ export function SerialPanel({ className }: SerialPanelProps) {
       {/* Toolbar */}
       <SerialToolbar />
 
-      {workflowHint && (
+      {/* 文本/分屏视图里日志区的空状态已给出同样的提示，顶部流程提示只在纯图表视图显示 */}
+      {workflowHint && viewMode === "chart" && (
         <PanelHintCard icon={workflowHint.icon} title={workflowHint.title} description={workflowHint.description} />
       )}
 
@@ -224,7 +226,7 @@ export function SerialPanel({ className }: SerialPanelProps) {
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm font-medium text-foreground">原始串口数据</span>
               <span className="text-xs text-muted-foreground">
-                已折叠 · {running ? "持续接收" : "已停止"} · {lines.length} 行
+                已折叠 · {running ? "持续接收" : "已停止"} · <SerialLineCount /> 行
               </span>
               <span className="ml-auto text-xs font-medium text-primary">展开</span>
             </button>
@@ -322,48 +324,6 @@ export function SerialPanel({ className }: SerialPanelProps) {
   );
 }
 
-interface PanelHintCardProps {
-  icon: ComponentType<{ className?: string }>;
-  title: string;
-  description: string;
-}
-
-function PanelHintCard({ icon: Icon, title, description }: PanelHintCardProps) {
-  return (
-    <div className="flex items-center gap-2 rounded-[18px] border border-border/60 bg-white/60 px-3 py-2 text-sm shadow-[0_6px_14px_rgba(73,93,142,0.05)]">
-      <div className="rounded-full bg-primary/10 p-1.5 text-primary">
-        <Icon className="h-3.5 w-3.5" />
-      </div>
-      <span className="font-medium text-foreground">{title}</span>
-      <span className="min-w-0 flex-1 text-xs text-muted-foreground">{description}</span>
-    </div>
-  );
-}
-
-interface PanelShellProps {
-  title: string;
-  subtitle: string;
-  badge: string;
-  actions?: ReactNode;
-  children: ReactNode;
-}
-
-function PanelShell({ title, subtitle, badge, actions, children }: PanelShellProps) {
-  return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[28px] border border-border/60 bg-white/75 shadow-[0_12px_26px_rgba(73,93,142,0.08)] backdrop-blur">
-      <div className="panel-shell-header flex items-center justify-between gap-3 border-b border-border/60 bg-muted/20 px-4 py-3">
-        <div>
-          <div className="text-sm font-medium text-foreground">{title}</div>
-          <div className="panel-shell-subtitle text-xs text-muted-foreground">{subtitle}</div>
-        </div>
-        <div className="flex items-center gap-2">
-          {actions}
-          <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground">
-            {badge}
-          </span>
-        </div>
-      </div>
-      <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
-    </div>
-  );
+function SerialLineCount() {
+  return <>{useSerialStore((state) => state.lines.length)}</>;
 }

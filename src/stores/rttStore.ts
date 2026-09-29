@@ -76,7 +76,6 @@ interface RttState extends TelemetryChartState {
   setError: (error: string | null) => void;
   setChannels: (upChannels: RttChannel[], downChannels: RttChannel[]) => void;
   selectChannel: (index: number) => void;
-  addLine: (line: Omit<RttLine, "id">) => void;
   addLines: (lines: Omit<RttLine, "id">[]) => void;
   clearLines: () => void;
   setAutoScroll: (enabled: boolean) => void;
@@ -142,14 +141,6 @@ export const useRttStore = create<RttState>((set) => ({
   setChannels: (upChannels, downChannels) => set({ upChannels, downChannels }),
 
   selectChannel: (selectedChannel) => set({ selectedChannel }),
-
-  addLine: (line) =>
-    set((state) => {
-      const id = state.lineIdCounter + 1;
-      const newLine: RttLine = { ...line, id };
-      const lines = [...state.lines, newLine].slice(-state.maxLines);
-      return { lines, lineIdCounter: id };
-    }),
 
   addLines: (newLines) =>
     set((state) => {

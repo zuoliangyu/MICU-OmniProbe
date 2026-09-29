@@ -8,15 +8,7 @@ export type DebugState = "detached" | "attached" | "running" | "halted";
 export type HaltReason = "manual" | "breakpoint" | "step" | "exception" | "watchpoint" | "unknown" | null;
 
 export type PanelId =
-  | "symbols"
-  | "source"
-  | "registers"
-  | "locals"
-  | "watch"
-  | "memory"
-  | "callStack"
-  | "breakpoints"
-  | "output";
+  "symbols" | "source" | "registers" | "locals" | "watch" | "memory" | "callStack" | "breakpoints" | "output";
 
 interface DebugStoreState {
   state: DebugState;

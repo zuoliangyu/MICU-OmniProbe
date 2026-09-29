@@ -101,7 +101,6 @@ export function SerialSidebar() {
 
   const chartSampleLines = useSerialStore((state) => (inspectorTab === "data" ? state.lines : NO_SAMPLE_LINES));
 
-  const stats = useSerialStats();
   const addLog = useLogStore((state) => state.addLog);
 
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
@@ -117,7 +116,8 @@ export function SerialSidebar() {
       setPorts(portList);
 
       // Auto-select first port if none selected
-      if (portList.length > 0 && !localConfig.port) {
+      // 当前端口从 store 现取：放进依赖会让每次切换端口都重扫并重注册 USB 监听
+      if (portList.length > 0 && !useSerialStore.getState().localConfig.port) {
         setLocalConfig({ port: portList[0].name });
       }
 
@@ -129,7 +129,7 @@ export function SerialSidebar() {
     } finally {
       setLoading(false);
     }
-  }, [localConfig.port, setLocalConfig, addLog]);
+  }, [setLocalConfig, addLog]);
 
   useEffect(() => {
     void refreshPorts();
@@ -925,20 +925,7 @@ export function SerialSidebar() {
             <CardHeader className="py-4">
               <CardTitle className="text-sm">统计信息</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-1 text-xs">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">接收:</span>
-                <span className="font-mono">{stats.bytesReceivedFormatted}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">发送:</span>
-                <span className="font-mono">{stats.bytesSentFormatted}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">行数:</span>
-                <span className="font-mono">{stats.lineCount}</span>
-              </div>
-            </CardContent>
+            <SerialStatsContent />
           </Card>
         )}
       </div>
@@ -991,5 +978,26 @@ export function SerialSidebar() {
         </div>
       )}
     </aside>
+  );
+}
+
+/** 统计随每批数据变化，单独订阅，避免整个侧栏跟着数据流按帧重渲染。 */
+function SerialStatsContent() {
+  const stats = useSerialStats();
+  return (
+    <CardContent className="space-y-1 text-xs">
+      <div className="flex justify-between">
+        <span className="text-muted-foreground">接收:</span>
+        <span className="font-mono">{stats.bytesReceivedFormatted}</span>
+      </div>
+      <div className="flex justify-between">
+        <span className="text-muted-foreground">发送:</span>
+        <span className="font-mono">{stats.bytesSentFormatted}</span>
+      </div>
+      <div className="flex justify-between">
+        <span className="text-muted-foreground">行数:</span>
+        <span className="font-mono">{stats.lineCount}</span>
+      </div>
+    </CardContent>
   );
 }

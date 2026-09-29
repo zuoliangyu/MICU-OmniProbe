@@ -30,10 +30,10 @@ import {
   Settings2,
 } from "lucide-react";
 import { ColorSettingsDialog } from "./ColorSettingsDialog";
-import { ChartConfigDialog } from "./ChartConfigDialog";
+import { LazyChartConfigDialog } from "@/components/lazyDialogs";
 import { RttIntegrationGuideDialog } from "./RttIntegrationGuideDialog";
-import { useEffect, useState } from "react";
-import { detectChartConfig } from "@/lib/chartAnalysis";
+import { useEffect, useMemo, useState } from "react";
+import { detectChartConfig, recentChartSamples } from "@/lib/chartAnalysis";
 import { exportRttLinesAsTxt, exportRttLinesAsCsv } from "@/lib/exporters";
 import { copyAllLines, formatRttLineForCopy } from "@/lib/viewerCopy";
 import { useShallow } from "zustand/react/shallow";
@@ -121,6 +121,7 @@ export function RttToolbar() {
   const lineCount = useRttStore((state) => state.lines.length);
   // 仅在图表配置对话框打开时才需要实时样本，关闭时用稳定空引用。
   const chartSampleLines = useRttStore((state) => (chartConfigOpen ? state.lines : NO_SAMPLE_LINES));
+  const chartSamples = useMemo(() => recentChartSamples(chartSampleLines), [chartSampleLines]);
   const { selectedProbe, selectedChipName, settings } = useProbeStore(
     useShallow((state) => ({
       selectedProbe: state.selectedProbe,
@@ -559,12 +560,12 @@ export function RttToolbar() {
             </div>
           </PopoverContent>
         </Popover>
-        <ChartConfigDialog
+        <LazyChartConfigDialog
           chartConfig={chartConfig}
           setChartConfig={setChartConfig}
           title="RTT 图表配置"
           allowBytesParsers
-          samples={chartSampleLines.slice(-20).map(({ text, rawData }) => ({ text, rawData }))}
+          samples={chartSamples}
           open={chartConfigOpen}
           onOpenChange={setChartConfigOpen}
           trigger={null}

@@ -7,10 +7,10 @@ import { Panel, Group, Separator } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { Activity, AlertCircle, FileText, Plug2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { ComponentType, ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useChartWorkspaceControls } from "@/hooks/useChartWorkspaceHost";
 import { ChartDetachedPlaceholder, ChartWindowActions } from "@/components/rtt/ChartWindowControls";
+import { PanelHintCard, PanelShell } from "@/components/layout/PanelShell";
 
 interface BluetoothPanelProps {
   className?: string;
@@ -72,7 +72,7 @@ export function BluetoothPanel({ className }: BluetoothPanelProps) {
     setSplitRatio,
     connected,
     running,
-    lines,
+    hasLines,
     chartConfig,
   } = useBluetoothStore(
     useShallow((state) => ({
@@ -84,7 +84,8 @@ export function BluetoothPanel({ className }: BluetoothPanelProps) {
       setSplitRatio: state.setSplitRatio,
       connected: state.connected,
       running: state.running,
-      lines: state.lines,
+      // 只取布尔值：订阅整个 lines 会让面板随每批数据重渲染
+      hasLines: state.lines.length > 0,
       chartConfig: state.chartConfig,
     }))
   );
@@ -117,7 +118,7 @@ export function BluetoothPanel({ className }: BluetoothPanelProps) {
           title: "已连接 BLE 设备，等待开始接收",
           description: "在右侧配置检查器选择 Notify 特征值并点击「开始接收」。NUS 设备会自动识别。",
         }
-      : lines.length === 0
+      : !hasLines
         ? {
             icon: FileText,
             title: "已订阅 Notify，等待数据流入",
@@ -129,7 +130,8 @@ export function BluetoothPanel({ className }: BluetoothPanelProps) {
     <div className={cn("flex h-full flex-col gap-2", className)}>
       <BleToolbar />
 
-      {workflowHint && (
+      {/* 文本/分屏视图里日志区的空状态已给出同样的提示，顶部流程提示只在纯图表视图显示 */}
+      {workflowHint && viewMode === "chart" && (
         <PanelHintCard icon={workflowHint.icon} title={workflowHint.title} description={workflowHint.description} />
       )}
 
@@ -216,32 +218,6 @@ export function BluetoothPanel({ className }: BluetoothPanelProps) {
   );
 }
 
-interface PanelHintCardProps {
-  icon: ComponentType<{ className?: string }>;
-  title: string;
-  description: string;
-}
-
-function PanelHintCard({ icon: Icon, title, description }: PanelHintCardProps) {
-  return (
-    <div className="flex items-center gap-2 rounded-[18px] border border-border/60 bg-white/60 px-3 py-2 text-sm shadow-[0_6px_14px_rgba(73,93,142,0.05)]">
-      <div className="rounded-full bg-primary/10 p-1.5 text-primary">
-        <Icon className="h-3.5 w-3.5" />
-      </div>
-      <span className="font-medium text-foreground">{title}</span>
-      <span className="min-w-0 flex-1 text-xs text-muted-foreground">{description}</span>
-    </div>
-  );
-}
-
-interface PanelShellProps {
-  title: string;
-  subtitle: string;
-  badge: string;
-  actions?: ReactNode;
-  children: ReactNode;
-}
-
 function SppGuidanceCard() {
   return (
     <div className="flex flex-1 items-center justify-center overflow-auto rounded-[28px] border border-border/60 bg-white/75 p-8 shadow-[0_12px_26px_rgba(73,93,142,0.08)] backdrop-blur">
@@ -270,26 +246,6 @@ function SppGuidanceCard() {
           后会得到 <code>/dev/rfcommN</code>。
         </p>
       </div>
-    </div>
-  );
-}
-
-function PanelShell({ title, subtitle, badge, actions, children }: PanelShellProps) {
-  return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[28px] border border-border/60 bg-white/75 shadow-[0_12px_26px_rgba(73,93,142,0.08)] backdrop-blur">
-      <div className="panel-shell-header flex items-center justify-between gap-3 border-b border-border/60 bg-muted/20 px-4 py-3">
-        <div>
-          <div className="text-sm font-medium text-foreground">{title}</div>
-          <div className="panel-shell-subtitle text-xs text-muted-foreground">{subtitle}</div>
-        </div>
-        <div className="flex items-center gap-2">
-          {actions}
-          <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground">
-            {badge}
-          </span>
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
     </div>
   );
 }

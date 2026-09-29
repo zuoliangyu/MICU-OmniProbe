@@ -19,7 +19,8 @@ export function TooltipButton({ tooltip, icon, tooltipSide = "bottom", children,
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button {...buttonProps}>
+        {/* 图标按钮只有 tooltip 时，读屏器拿不到名称；字符串 tooltip 默认兼作 aria-label */}
+        <Button aria-label={typeof tooltip === "string" ? tooltip : undefined} {...buttonProps}>
           {icon}
           {children}
         </Button>

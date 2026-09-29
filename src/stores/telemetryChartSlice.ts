@@ -28,7 +28,6 @@ export interface TelemetryChartState {
   /** 最近一次触发点的时间戳；供波形标记触发位置 */
   triggeredAt: number | null;
 
-  addChartData: (point: ChartDataPoint) => void;
   addChartDataBatch: (points: ChartDataPoint[]) => void;
   clearChartData: () => void;
   setChartConfig: (config: ChartConfig) => void;
@@ -114,8 +113,6 @@ export function createTelemetryChartSlice(
     parseSuccessCount: 0,
     parseFailCount: 0,
     triggeredAt: null,
-
-    addChartData: (point) => set((state) => appendSamples(state, [point])),
 
     addChartDataBatch: (points) => set((state) => (points.length === 0 ? {} : appendSamples(state, points))),
 

@@ -36,6 +36,10 @@ export interface TextSegment {
   className: string;
 }
 
+function replaceClasses(className: string, pattern: RegExp): string {
+  return className.replace(pattern, "").replace(/\s+/g, " ").trim();
+}
+
 /** 解析 ANSI 转义序列为样式化文本段 */
 export function parseAnsiText(text: string): TextSegment[] {
   const segments: TextSegment[] = [];
@@ -53,13 +57,12 @@ export function parseAnsiText(text: string): TextSegment[] {
       if (code === "0" || code === "") {
         currentClass = "";
       } else if (code === "1") {
-        currentClass += " font-bold";
+        currentClass = `${currentClass} font-bold`.trim();
       } else if (ANSI_COLORS[code]) {
-        currentClass = currentClass.replace(/text-\S+/g, "").trim();
-        currentClass += " " + ANSI_COLORS[code];
+        // 连同 dark: 变体一起去掉，否则切换颜色后会残留孤立的 "dark:" 前缀
+        currentClass = `${replaceClasses(currentClass, /(?:dark:)?text-\S+/g)} ${ANSI_COLORS[code]}`.trim();
       } else if (ANSI_BG_COLORS[code]) {
-        currentClass = currentClass.replace(/bg-\S+/g, "").trim();
-        currentClass += " " + ANSI_BG_COLORS[code];
+        currentClass = `${replaceClasses(currentClass, /(?:dark:)?bg-\S+/g)} ${ANSI_BG_COLORS[code]}`.trim();
       }
     }
     lastIndex = ansiRegex.lastIndex;

@@ -3,8 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useSerialStore } from "@/stores/serialStore";
 import { useLogStore } from "@/stores/logStore";
 import type { ColorParserConfig } from "@/lib/rttColorParser";
-import { parseColoredText } from "@/lib/rttColorParser";
-import { parseAnsiText } from "@/lib/ansiParser";
+import { parseColoredSegments } from "@/lib/coloredSegments";
 import { writeSerialData, writeSerialText } from "@/lib/serialSend";
 import type { LineEnding } from "@/lib/serialTypes";
 import { loadSendHistory, pushSendHistory } from "@/lib/serialHistory";
@@ -531,37 +530,7 @@ const SerialTerminalLineItem = React.memo(function SerialTerminalLineItem({
   showCursor,
   colorParserConfig,
 }: SerialTerminalLineItemProps) {
-  const textSegments = useMemo(() => {
-    const ansiSegments = parseAnsiText(text);
-
-    if (!colorParserConfig.enabled) {
-      return ansiSegments.map((segment) => ({
-        text: segment.text,
-        className: segment.className,
-        styles: {} as React.CSSProperties,
-      }));
-    }
-
-    const result: Array<{
-      text: string;
-      className?: string;
-      styles?: React.CSSProperties;
-    }> = [];
-
-    for (const ansiSegment of ansiSegments) {
-      const customSegments = parseColoredText(ansiSegment.text, colorParserConfig);
-
-      for (const customSegment of customSegments) {
-        result.push({
-          text: customSegment.text,
-          className: ansiSegment.className,
-          styles: customSegment.styles,
-        });
-      }
-    }
-
-    return result;
-  }, [colorParserConfig, text]);
+  const textSegments = useMemo(() => parseColoredSegments(text, colorParserConfig), [colorParserConfig, text]);
 
   return (
     <div className="py-0.5 hover:bg-muted/50">

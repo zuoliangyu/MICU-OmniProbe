@@ -7,11 +7,18 @@ import { FolderOpen, Save, Unlock, Trash2, CheckCircle, Upload, Zap, RotateCcw, 
 import { TooltipButton, TooltipWrapper } from "@/components/ui/tooltip-button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useProbeStore } from "@/stores/probeStore";
-import { useChipStore } from "@/stores/chipStore";
 import { useFlashStore } from "@/stores/flashStore";
 import { useLogStore } from "@/stores/logStore";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { flashFirmware, eraseChip, eraseSector, verifyFirmware, readFlash, getFirmwareInfo } from "@/lib/tauri";
+import {
+  flashFirmware,
+  eraseChip,
+  eraseSector,
+  verifyFirmware,
+  readFlash,
+  getFirmwareInfo,
+  writeBinaryFile,
+} from "@/lib/tauri";
 import { listen } from "@tauri-apps/api/event";
 import type { FlashProgressEvent, EraseMode } from "@/lib/types";
 import { EraseDialog } from "@/components/dialogs/EraseDialog";
@@ -23,7 +30,6 @@ function ToolbarSeparator() {
 
 export function FlashToolbar() {
   const connected = useProbeStore((state) => state.connected);
-  const selectedFlashAlgorithm = useChipStore((state) => state.selectedFlashAlgorithm);
   const {
     firmwarePath,
     setFirmwarePath,
@@ -35,6 +41,8 @@ export function FlashToolbar() {
     resetAfterFlash,
     eraseMode,
     setEraseMode,
+    useCustomAddress,
+    customFlashAddress,
   } = useFlashStore(
     useShallow((state) => ({
       firmwarePath: state.firmwarePath,
@@ -47,6 +55,8 @@ export function FlashToolbar() {
       resetAfterFlash: state.resetAfterFlash,
       eraseMode: state.eraseMode,
       setEraseMode: state.setEraseMode,
+      useCustomAddress: state.useCustomAddress,
+      customFlashAddress: state.customFlashAddress,
     }))
   );
   const addLog = useLogStore((state) => state.addLog);
@@ -137,7 +147,8 @@ export function FlashToolbar() {
         skip_erase: false,
         reset_after: resetAfterFlash,
         erase_mode: eraseMode,
-        flash_algorithm: selectedFlashAlgorithm || undefined,
+        use_custom_address: useCustomAddress,
+        custom_flash_address: useCustomAddress ? customFlashAddress : undefined,
       });
 
       addLog("success", "烧录成功");
@@ -193,7 +204,8 @@ export function FlashToolbar() {
     try {
       setFlashing(true);
       addLog("info", "开始校验");
-      const result = await verifyFirmware(firmwarePath);
+      // 与烧录使用同一地址，否则自定义地址烧录的 BIN 必定校验不匹配
+      const result = await verifyFirmware(firmwarePath, useCustomAddress ? customFlashAddress : undefined);
       if (result) {
         addLog("success", "校验通过");
       } else {
@@ -221,6 +233,7 @@ export function FlashToolbar() {
         setFlashing(true);
         addLog("info", "开始读取Flash");
         const data = await readFlash(0x08000000, 0x10000); // 64KB
+        await writeBinaryFile(path, data);
         addLog("success", `已读取 ${data.length} 字节到 ${path}`);
       } catch (error) {
         addLog("error", `读取失败: ${error}`);
@@ -266,13 +279,15 @@ export function FlashToolbar() {
         {/* Flash operations */}
         <TooltipButton
           variant="ghost"
-          size="icon"
-          className="h-8 w-8"
+          size="sm"
+          className="h-8 gap-1.5 px-2.5 text-xs"
           icon={<Trash2 className="h-4 w-4" />}
-          tooltip="擦除Flash"
+          tooltip="擦除 Flash"
           disabled={!connected || flashing}
           onClick={handleErase}
-        />
+        >
+          擦除
+        </TooltipButton>
 
         {/* Erase mode selector */}
         <TooltipWrapper tooltip="烧录时的擦除模式：扇区擦除只擦除需要写入的区域（快），整片擦除会清空整个Flash（慢但彻底）">
@@ -292,31 +307,37 @@ export function FlashToolbar() {
 
         <TooltipButton
           variant="ghost"
-          size="icon"
-          className="h-8 w-8"
+          size="sm"
+          className="h-8 gap-1.5 px-2.5 text-xs"
           icon={<CheckCircle className="h-4 w-4" />}
           tooltip="校验"
           disabled={!connected || flashing || !firmwarePath}
           onClick={handleVerify}
-        />
+        >
+          校验
+        </TooltipButton>
         <TooltipButton
           variant="ghost"
-          size="icon"
-          className="h-8 w-8"
+          size="sm"
+          className="h-8 gap-1.5 px-2.5 text-xs"
           icon={<Upload className="h-4 w-4" />}
-          tooltip="读取Flash"
+          tooltip="读取 Flash"
           disabled={!connected || flashing}
           onClick={handleRead}
-        />
+        >
+          读取
+        </TooltipButton>
         <TooltipButton
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
+          variant="default"
+          size="sm"
+          className="h-8 gap-1.5 px-3 text-xs"
           icon={<Zap className="h-4 w-4" />}
           tooltip="一键烧录"
           disabled={!connected || flashing || !firmwarePath}
           onClick={handleFlash}
-        />
+        >
+          烧录
+        </TooltipButton>
         <ToolbarSeparator />
 
         {/* Control operations */}

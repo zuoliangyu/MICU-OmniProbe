@@ -4,8 +4,8 @@ import { useBluetoothStore } from "@/stores/bluetoothStore";
 import { useLogStore } from "@/stores/logStore";
 import { cn } from "@/lib/utils";
 import type { BleLine } from "@/lib/bleTypes";
-import { parseColoredText } from "@/lib/rttColorParser";
-import { parseAnsiText } from "@/lib/ansiParser";
+import { LOG_LEVEL_COLORS, parseColoredSegments } from "@/lib/coloredSegments";
+import { formatTime } from "@/lib/formatters";
 import { exportTextAsTxt } from "@/lib/exporters";
 import { formatDataAsHex, formatSerialLineForCopy } from "@/lib/viewerCopy";
 import { useSaveTxtContextMenu } from "@/components/ui/save-txt-context-menu";
@@ -139,52 +139,17 @@ const BleLineItem = React.memo(function BleLineItem({
 }: BleLineItemProps) {
   const colorParserConfig = useBluetoothStore((state) => state.colorParserConfig);
 
-  const levelColors: Record<BleLine["level"], string> = {
-    error: "text-red-500",
-    warn: "text-yellow-500",
-    debug: "text-blue-400",
-    info: "text-foreground",
-  };
-
-  const formatTime = (date: Date) => {
-    const h = date.getHours().toString().padStart(2, "0");
-    const m = date.getMinutes().toString().padStart(2, "0");
-    const s = date.getSeconds().toString().padStart(2, "0");
-    const ms = date.getMilliseconds().toString().padStart(3, "0");
-    return `${h}:${m}:${s}.${ms}`;
-  };
-
-  const textSegments = useMemo(() => {
-    const ansiSegments = parseAnsiText(line.text);
-    if (colorParserConfig.enabled) {
-      const result: Array<{
-        text: string;
-        className?: string;
-        styles?: React.CSSProperties;
-      }> = [];
-      for (const ansiSeg of ansiSegments) {
-        const customSegments = parseColoredText(ansiSeg.text, colorParserConfig);
-        for (const customSeg of customSegments) {
-          result.push({
-            text: customSeg.text,
-            className: ansiSeg.className,
-            styles: customSeg.styles,
-          });
-        }
-      }
-      return result;
-    }
-    return ansiSegments.map((seg) => ({
-      text: seg.text,
-      className: seg.className,
-      styles: {},
-    }));
-  }, [line.text, colorParserConfig]);
+  const textSegments = useMemo(
+    () => parseColoredSegments(line.text, colorParserConfig),
+    [line.text, colorParserConfig]
+  );
 
   return (
-    <div className={cn("flex items-baseline gap-2 py-0.5 hover:bg-muted/50", levelColors[line.level])}>
+    <div className={cn("flex items-baseline gap-2 py-0.5 hover:bg-muted/50", LOG_LEVEL_COLORS[line.level])}>
       {showTimestamp && (
-        <span className="shrink-0 select-none font-mono text-muted-foreground">[{formatTime(line.timestamp)}]</span>
+        <span className="shrink-0 select-none font-mono text-muted-foreground">
+          [{formatTime(line.timestamp.getTime())}]
+        </span>
       )}
       {showDirectionPrefix && (
         <span

@@ -28,6 +28,23 @@ export interface ChartSample {
   rawData?: number[];
 }
 
+/**
+ * 从末尾倒着取最近 limit 条满足条件的行作为样本。
+ * 日志缓冲可达上万行，只取尾部就不必每次整体 filter。
+ */
+export function recentChartSamples<T extends ChartSample>(
+  lines: readonly T[],
+  limit = 20,
+  predicate: (line: T) => boolean = () => true
+): ChartSample[] {
+  const picked: ChartSample[] = [];
+  for (let index = lines.length - 1; index >= 0 && picked.length < limit; index -= 1) {
+    const line = lines[index];
+    if (predicate(line)) picked.push({ text: line.text, rawData: line.rawData });
+  }
+  return picked.reverse();
+}
+
 export interface ChartParserPreview {
   config: ChartConfig;
   success: boolean;

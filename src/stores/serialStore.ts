@@ -112,11 +112,7 @@ interface SendSettings {
 type TerminalUnit = { kind: "char"; value: string } | { kind: "ansi"; value: string };
 
 type TerminalToken =
-  | { type: "char"; value: string }
-  | { type: "ansi"; value: string }
-  | { type: "cr" }
-  | { type: "lf" }
-  | { type: "bs" };
+  { type: "char"; value: string } | { type: "ansi"; value: string } | { type: "cr" } | { type: "lf" } | { type: "bs" };
 
 const defaultSerialConfigBundle = {
   local: defaultLocalConfig,

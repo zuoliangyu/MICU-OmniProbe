@@ -98,8 +98,9 @@ export async function debugReset(): Promise<DebugCoreState> {
 }
 
 // 内存读写
+// 后端以原始二进制返回；调用方按普通数组做格式化，读取量小（面板级），直接转换即可
 export async function debugReadMemory(address: number, size: number): Promise<number[]> {
-  return await invoke<number[]>("debug_read_memory", { options: { address, size } });
+  return Array.from(new Uint8Array(await invoke<ArrayBuffer>("debug_read_memory", { options: { address, size } })));
 }
 
 // 寄存器读写

@@ -4,9 +4,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useSerialStore } from "@/stores/serialStore";
 import { useLogStore } from "@/stores/logStore";
 import { cn } from "@/lib/utils";
-import type { SerialLine } from "@/lib/serialTypes";
-import { parseColoredText } from "@/lib/rttColorParser";
-import { parseAnsiText } from "@/lib/ansiParser";
+import type { ViewerLine } from "@/lib/serialTypes";
+import { LOG_LEVEL_COLORS, parseColoredSegments } from "@/lib/coloredSegments";
 import { useViewerSelection, formatSerialLineForCopy, formatDataAsHex, copyTextToClipboard } from "@/lib/viewerCopy";
 import { exportTextAsTxt } from "@/lib/exporters";
 import { useShallow } from "zustand/react/shallow";
@@ -27,7 +26,7 @@ export interface SerialViewerData {
   running: boolean;
   displayMode: "text" | "hex";
   connected: boolean;
-  lines: SerialLine[];
+  lines: ViewerLine[];
   searchQuery: string;
 }
 
@@ -40,24 +39,29 @@ const COPY_MODE_OPTS: Record<CopyMode, { ts: boolean; dir: boolean; label: strin
   full: { ts: true, dir: true, label: "完整行" },
 };
 
-const formatLineForCopy = (line: SerialLine, mode: CopyMode, timestampFormat: string): string => {
+const formatLineForCopy = (line: ViewerLine, mode: CopyMode, timestampFormat: string): string => {
   const o = COPY_MODE_OPTS[mode];
   return formatSerialLineForCopy(line, o.ts, o.dir, timestampFormat);
 };
 
 export function SerialViewer({ direction, title, data }: SerialViewerProps) {
+  // 外部传入 data（如控制面板的 RTT 来源）时不订阅串口 store，避免被另一条数据流带着重渲染
   const storeData = useSerialStore(
-    useShallow((state) => ({
-      autoScroll: state.autoScroll,
-      showTimestamp: state.showTimestamp,
-      timestampFormat: state.timestampFormat,
-      showDirectionPrefix: state.showDirectionPrefix,
-      running: state.running,
-      displayMode: state.displayMode,
-      connected: state.connected,
-      lines: state.lines,
-      searchQuery: state.searchQuery,
-    }))
+    useShallow((state) =>
+      data
+        ? null
+        : {
+            autoScroll: state.autoScroll,
+            showTimestamp: state.showTimestamp,
+            timestampFormat: state.timestampFormat,
+            showDirectionPrefix: state.showDirectionPrefix,
+            running: state.running,
+            displayMode: state.displayMode,
+            connected: state.connected,
+            lines: state.lines,
+            searchQuery: state.searchQuery,
+          }
+    )
   );
   const {
     autoScroll,
@@ -69,7 +73,7 @@ export function SerialViewer({ direction, title, data }: SerialViewerProps) {
     connected,
     lines,
     searchQuery,
-  } = data ?? storeData;
+  } = (data ?? storeData)!;
   const addLog = useLogStore((state) => state.addLog);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; canCopy: boolean } | null>(null);
 
@@ -79,7 +83,7 @@ export function SerialViewer({ direction, title, data }: SerialViewerProps) {
 
     // Filter by direction if specified
     if (direction) {
-      filtered = filtered.filter((line) => line.direction === direction);
+      filtered = filtered.filter((line) => (line.direction ?? "rx") === direction);
     }
 
     // Filter by search query（行文本的小写形式按行对象缓存，避免每批数据重算整个缓冲区）
@@ -91,9 +95,8 @@ export function SerialViewer({ direction, title, data }: SerialViewerProps) {
     return filtered;
   }, [lines, direction, searchQuery]);
 
-  const { scrollRef, getSelectedRange, isSelectAll, highlight, clearSelection, selectLine } = useViewerSelection(
-    filteredLines.length
-  );
+  const { scrollRef, getSelectedRange, isSelectAll, highlight, clearSelection, selectLine } =
+    useViewerSelection(filteredLines);
 
   const rowVirtualizer = useVirtualizer({
     count: filteredLines.length,
@@ -304,7 +307,7 @@ export function SerialViewer({ direction, title, data }: SerialViewerProps) {
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                <SerialLineItem
+                <ViewerLineItem
                   line={line}
                   showTimestamp={showTimestamp}
                   timestampFormat={timestampFormat}
@@ -385,8 +388,8 @@ function CopyContextMenu({ x, y, canCopy, onPick, onSave }: CopyContextMenuProps
   );
 }
 
-interface SerialLineItemProps {
-  line: SerialLine;
+interface ViewerLineItemProps {
+  line: ViewerLine;
   showTimestamp: boolean;
   timestampFormat: string;
   showDirectionPrefix: boolean;
@@ -394,61 +397,26 @@ interface SerialLineItemProps {
   selected: boolean;
 }
 
-const SerialLineItem = React.memo(function SerialLineItem({
+const ViewerLineItem = React.memo(function ViewerLineItem({
   line,
   showTimestamp,
   timestampFormat,
   showDirectionPrefix,
   displayMode,
   selected,
-}: SerialLineItemProps) {
+}: ViewerLineItemProps) {
   const colorParserConfig = useSerialStore((state) => state.colorParserConfig);
 
-  const levelColors: Record<SerialLine["level"], string> = {
-    error: "text-red-500",
-    warn: "text-yellow-500",
-    debug: "text-blue-400",
-    info: "text-foreground",
-  };
-
-  // Parse ANSI and custom color markers
-  const textSegments = useMemo(() => {
-    const ansiSegments = parseAnsiText(line.text);
-
-    if (colorParserConfig.enabled) {
-      const result: Array<{
-        text: string;
-        className?: string;
-        styles?: React.CSSProperties;
-      }> = [];
-
-      for (const ansiSeg of ansiSegments) {
-        const customSegments = parseColoredText(ansiSeg.text, colorParserConfig);
-
-        for (const customSeg of customSegments) {
-          result.push({
-            text: customSeg.text,
-            className: ansiSeg.className,
-            styles: customSeg.styles,
-          });
-        }
-      }
-
-      return result;
-    } else {
-      return ansiSegments.map((seg) => ({
-        text: seg.text,
-        className: seg.className,
-        styles: {},
-      }));
-    }
-  }, [line.text, colorParserConfig]);
+  const textSegments = useMemo(
+    () => parseColoredSegments(line.text, colorParserConfig),
+    [line.text, colorParserConfig]
+  );
 
   return (
     <div
       className={cn(
         "flex items-baseline gap-2 py-0.5 hover:bg-muted/50",
-        levelColors[line.level],
+        LOG_LEVEL_COLORS[line.level],
         selected && "bg-primary/20"
       )}
     >
@@ -461,10 +429,10 @@ const SerialLineItem = React.memo(function SerialLineItem({
         <span
           className={cn(
             "shrink-0 select-none font-mono text-xs",
-            line.direction === "rx" ? "text-emerald-600" : "text-sky-600"
+            line.direction === "tx" ? "text-sky-600" : "text-emerald-600"
           )}
         >
-          {line.direction === "rx" ? "【RX】" : "【TX】"}
+          {line.direction === "tx" ? "【TX】" : "【RX】"}
         </span>
       )}
       {displayMode === "hex" ? (

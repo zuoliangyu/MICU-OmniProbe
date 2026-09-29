@@ -64,15 +64,7 @@ export type ChartSeries = Channel;
 /** 解析模式。第三方文本解析器使用 plugin: 前缀，避免与内置模式冲突。 */
 export type ModbusParseMode = "modbus-rtu" | "modbus-ascii" | "modbus-tcp";
 export type BuiltInParseMode =
-  | "regex"
-  | "delimiter"
-  | "json"
-  | "kv"
-  | "binary"
-  | "justfloat"
-  | "slcan"
-  | ModbusParseMode
-  | "auto";
+  "regex" | "delimiter" | "json" | "kv" | "binary" | "justfloat" | "slcan" | ModbusParseMode | "auto";
 
 /**
  * 需要原始字节流的内置解析模式。文本行已经过分帧和解码，还原不回字节，
@@ -329,6 +321,13 @@ export type SplitOrientation = "vertical" | "horizontal";
 /**
  * 默认图表配置
  */
+/**
+ * 缓冲点数上限。每批数据都要对整个缓冲做 concat + slice、统计与坐标范围计算，
+ * 成本随点数线性增长；不设上限时误填百万级数值会同时拖垮帧率和内存。
+ */
+export const MAX_CHART_DATA_POINTS = 200_000;
+export const MIN_CHART_DATA_POINTS = 100;
+
 export const DEFAULT_CHART_CONFIG: ChartConfig = {
   enabled: false,
   parseMode: "auto",
@@ -459,7 +458,12 @@ export function migrateChartConfig(raw: unknown, allowBytesParsers = true): Char
     binaryProtocol: sanitizeBinaryProtocolConfig(source.binaryProtocol),
     channels,
     chartType,
-    maxDataPoints: clampInt(source.maxDataPoints, 100, Number.MAX_SAFE_INTEGER, DEFAULT_CHART_CONFIG.maxDataPoints),
+    maxDataPoints: clampInt(
+      source.maxDataPoints,
+      MIN_CHART_DATA_POINTS,
+      MAX_CHART_DATA_POINTS,
+      DEFAULT_CHART_CONFIG.maxDataPoints
+    ),
     visiblePointLimit: clampInt(
       source.visiblePointLimit,
       0,

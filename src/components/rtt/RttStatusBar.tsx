@@ -1,6 +1,7 @@
 import { useRttStore } from "@/stores/rttStore";
 import { useRttStats } from "@/hooks/useRttEvents";
 import { cn } from "@/lib/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useShallow } from "zustand/react/shallow";
 
 export function RttStatusBar() {
@@ -33,18 +34,24 @@ export function RttStatusBar() {
       {/* 通道信息 */}
       <div className="flex items-center gap-2">
         <span>通道:</span>
-        <select
-          value={selectedChannel}
-          onChange={(e) => useRttStore.getState().selectChannel(Number(e.target.value))}
-          className="bg-transparent border border-border rounded px-1 py-0.5 text-xs"
+        <Select
+          value={String(selectedChannel)}
+          onValueChange={(value) => useRttStore.getState().selectChannel(Number(value))}
         >
-          <option value={-1}>全部</option>
-          {upChannels.map((ch) => (
-            <option key={ch.index} value={ch.index}>
-              {ch.index}: {ch.name || "(未命名)"}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger aria-label="RTT 通道" className="h-6 w-auto min-w-[88px] gap-1 rounded-md px-2 py-0 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="-1" className="text-xs">
+              全部
+            </SelectItem>
+            {upChannels.map((ch) => (
+              <SelectItem key={ch.index} value={String(ch.index)} className="text-xs">
+                {ch.index}: {ch.name || "(未命名)"}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex-1" />

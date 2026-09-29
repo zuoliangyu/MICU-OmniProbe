@@ -6,7 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SerialViewer } from "@/components/serial/SerialViewer";
 import { ChartViewer } from "@/components/rtt/ChartViewer";
-import { ChartConfigDialog } from "@/components/rtt/ChartConfigDialog";
+import { LazyChartConfigDialog } from "@/components/lazyDialogs";
 import type { SerialLine } from "@/lib/serialTypes";
 import type { ChartDataPoint, TelemetryConfig, ViewMode } from "@/lib/chartTypes";
 import { DEFAULT_CHART_CONFIG, migrateChartConfig } from "@/lib/chartTypes";
@@ -346,7 +346,7 @@ export function LogAnalysisMode() {
             <SelectItem value="__none">选择分析前缀</SelectItem>
             {prefixSummaries.map(({ prefix, count }) => (
               <SelectItem key={prefix} value={prefix}>
-                {prefix} · {count.toLocaleString()} 行
+                前缀 {prefix} · {count.toLocaleString()} 行
               </SelectItem>
             ))}
           </SelectContent>
@@ -437,7 +437,7 @@ export function LogAnalysisMode() {
           </Popover>
         )}
 
-        <ChartConfigDialog
+        <LazyChartConfigDialog
           chartConfig={chartConfig}
           setChartConfig={(config) => setChartConfig(migrateChartConfig(config))}
           samples={samples}
@@ -456,30 +456,30 @@ export function LogAnalysisMode() {
         </Button>
       </div>
 
-      <div className="flex min-h-5 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-2 text-xs text-muted-foreground">
-        {fileName ? (
-          <>
-            <span className="max-w-80 truncate" title={fileName}>
-              {fileName}
-            </span>
-            <span>{formatBytes(fileSize)}</span>
-            <span>{importedCount.toLocaleString()} 行</span>
-            {selectedPrefixSummary && (
-              <span>
-                分析 {selectedPrefixSummary.prefix} · {selectedPrefixSummary.count.toLocaleString()} 行
-                {chartConfig.parseMode === "auto" && chartConfig.channels.length === 0 && " · 待配置解析规则"}
+      {(fileName || importError) && (
+        <div className="flex min-h-5 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-2 text-xs text-muted-foreground">
+          {fileName && (
+            <>
+              <span className="max-w-80 truncate" title={fileName}>
+                {fileName}
               </span>
-            )}
-            {inferredTimestampCount > 0 && (
-              <span className="text-amber-600">{inferredTimestampCount} 行时间为推断值</span>
-            )}
-            {chartParsing && <span>图表解析 {chartProgress}%</span>}
-          </>
-        ) : (
-          <span>支持 UTF-8 的 .log / .txt 文件，按流读取大文件。</span>
-        )}
-        {importError && <span className="text-red-500">导入失败：{importError}</span>}
-      </div>
+              <span>{formatBytes(fileSize)}</span>
+              <span>{importedCount.toLocaleString()} 行</span>
+              {selectedPrefixSummary && (
+                <span>
+                  分析前缀 {selectedPrefixSummary.prefix} · {selectedPrefixSummary.count.toLocaleString()} 行
+                  {chartConfig.parseMode === "auto" && chartConfig.channels.length === 0 && " · 待配置解析规则"}
+                </span>
+              )}
+              {inferredTimestampCount > 0 && (
+                <span className="text-amber-600">{inferredTimestampCount} 行时间为推断值</span>
+              )}
+              {chartParsing && <span>图表解析 {chartProgress}%</span>}
+            </>
+          )}
+          {importError && <span className="text-red-500">导入失败：{importError}</span>}
+        </div>
+      )}
 
       <div
         className={cn(
@@ -488,14 +488,21 @@ export function LogAnalysisMode() {
         )}
       >
         {lines.length === 0 && !importing ? (
-          <button
-            type="button"
-            className="flex h-full min-h-64 flex-col items-center justify-center gap-3 rounded-[22px] border border-dashed border-border/70 bg-muted/20 text-muted-foreground"
-            onClick={() => fileInputRef.current?.click()}
-          >
+          <div className="flex h-full min-h-64 flex-col items-center justify-center gap-3 rounded-[22px] border border-dashed border-border/70 bg-muted/20 text-muted-foreground">
             <FileUp className="h-8 w-8" />
-            <span className="text-sm">选择日志文件开始分析</span>
-          </button>
+            <span className="text-sm text-foreground">选择日志文件开始分析</span>
+            <span className="text-xs">支持 UTF-8 的 .log / .txt 文件，按流读取大文件。</span>
+            <div className="mt-1 flex items-center gap-2">
+              <Button size="sm" className="gap-1.5" onClick={() => fileInputRef.current?.click()}>
+                <FileUp className="h-4 w-4" />
+                导入日志
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={loadSimulation}>
+                <Waves className="h-4 w-4" />
+                模拟数据
+              </Button>
+            </div>
+          </div>
         ) : importing ? (
           <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />

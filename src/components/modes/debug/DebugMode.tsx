@@ -286,7 +286,11 @@ export function DebugMode() {
     <div className="surface-strong flex h-full flex-col gap-2 overflow-hidden rounded-[14px] p-2">
       <DebugToolbar onResetLayout={handleResetLayout} />
       <div className="surface-shell relative flex-1 overflow-hidden rounded-[12px]">
-        <DockviewReact components={dockviewComponents} onReady={handleReady} className="dockview-theme-light h-full" />
+        <DockviewReact
+          components={dockviewComponents}
+          onReady={handleReady}
+          className="dockview-theme-light debug-dock h-full"
+        />
       </div>
     </div>
   );

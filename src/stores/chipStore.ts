@@ -9,7 +9,6 @@ interface ChipState {
   chipInfo: ChipInfo | null;
   memoryRegions: MemoryRegionInfo[];
   flashAlgorithms: FlashAlgorithmInfo[];
-  selectedFlashAlgorithm: string | null; // 选中的烧录算法名称
   loading: boolean;
   searchQuery: string;
 
@@ -20,7 +19,6 @@ interface ChipState {
   setChipInfo: (info: ChipInfo | null) => void;
   setMemoryRegions: (regions: MemoryRegionInfo[]) => void;
   setFlashAlgorithms: (algorithms: FlashAlgorithmInfo[]) => void;
-  selectFlashAlgorithm: (algorithmName: string | null) => void;
   setLoading: (loading: boolean) => void;
   setSearchQuery: (query: string) => void;
   reset: () => void;
@@ -33,7 +31,6 @@ export const useChipStore = create<ChipState>((set) => ({
   chipInfo: null,
   memoryRegions: [],
   flashAlgorithms: [],
-  selectedFlashAlgorithm: null,
   loading: false,
   searchQuery: "",
 
@@ -43,24 +40,16 @@ export const useChipStore = create<ChipState>((set) => ({
 
   selectChip: (chip) => set({ selectedChip: chip }),
 
-  setChipInfo: (chipInfo) => {
-    // 自动选择默认算法
-    const defaultAlgo = chipInfo?.flash_algorithms.find((a) => a.default);
-    const selectedAlgo = defaultAlgo?.name || chipInfo?.flash_algorithms[0]?.name || null;
-
+  setChipInfo: (chipInfo) =>
     set({
       chipInfo,
       memoryRegions: chipInfo?.memory_regions || [],
       flashAlgorithms: chipInfo?.flash_algorithms || [],
-      selectedFlashAlgorithm: selectedAlgo,
-    });
-  },
+    }),
 
   setMemoryRegions: (memoryRegions) => set({ memoryRegions }),
 
   setFlashAlgorithms: (flashAlgorithms) => set({ flashAlgorithms }),
-
-  selectFlashAlgorithm: (algorithmName) => set({ selectedFlashAlgorithm: algorithmName }),
 
   setLoading: (loading) => set({ loading }),
 
@@ -73,7 +62,6 @@ export const useChipStore = create<ChipState>((set) => ({
       chipInfo: null,
       memoryRegions: [],
       flashAlgorithms: [],
-      selectedFlashAlgorithm: null,
       searchQuery: "",
     }),
 }));

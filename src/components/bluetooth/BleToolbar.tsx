@@ -3,12 +3,12 @@ import { useLogStore } from "@/stores/logStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ChartConfigDialog } from "@/components/rtt/ChartConfigDialog";
+import { LazyChartConfigDialog } from "@/components/lazyDialogs";
 import { SessionRecordControls } from "@/components/rtt/SessionRecordControls";
 import { RxFramingSettingsPanel } from "@/components/rtt/RxFramingSettingsPanel";
 import { TriggerSettingsPanel } from "@/components/rtt/TriggerSettingsPanel";
 import { SignalWorkspaceControls } from "@/components/rtt/SignalWorkspaceControls";
-import { detectChartConfig } from "@/lib/chartAnalysis";
+import { detectChartConfig, recentChartSamples } from "@/lib/chartAnalysis";
 import {
   Trash2,
   Search,
@@ -23,7 +23,10 @@ import {
   Settings2,
 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import type { BleLine } from "@/lib/bleTypes";
+
+const NO_SAMPLE_LINES: BleLine[] = [];
 
 export function BleToolbar() {
   const {
@@ -34,7 +37,7 @@ export function BleToolbar() {
     splitOrientation,
     chartConfig,
     chartPaused,
-    lines,
+    hasLines,
     setAutoScroll,
     setSearchQuery,
     setDisplayMode,
@@ -59,7 +62,7 @@ export function BleToolbar() {
       splitOrientation: state.splitOrientation,
       chartConfig: state.chartConfig,
       chartPaused: state.chartPaused,
-      lines: state.lines,
+      hasLines: state.lines.length > 0,
       setAutoScroll: state.setAutoScroll,
       setSearchQuery: state.setSearchQuery,
       setDisplayMode: state.setDisplayMode,
@@ -81,13 +84,19 @@ export function BleToolbar() {
   const addLog = useLogStore((state) => state.addLog);
   const [moreOpen, setMoreOpen] = useState(false);
   const [chartConfigOpen, setChartConfigOpen] = useState(false);
+  // 只有图表配置对话框打开时才需要实时样本；关闭时返回稳定空引用，工具栏不随数据流重渲染。
+  const chartSampleLines = useBluetoothStore((state) => (chartConfigOpen ? state.lines : NO_SAMPLE_LINES));
+  const chartSamples = useMemo(
+    () => recentChartSamples(chartSampleLines, 20, (line) => line.direction === "rx"),
+    [chartSampleLines]
+  );
 
   const handleSmartEnableChart = () => {
-    const samples = lines
-      .filter(
-        (line) => line.direction === "rx" && (!chartConfig.framePrefix || line.text.startsWith(chartConfig.framePrefix))
-      )
-      .slice(-20);
+    const samples = recentChartSamples(
+      useBluetoothStore.getState().lines,
+      20,
+      (line) => line.direction === "rx" && (!chartConfig.framePrefix || line.text.startsWith(chartConfig.framePrefix))
+    );
     if (samples.length === 0) {
       addLog("warn", "没有 BLE 数据可分析，请先接收一些数据");
       return;
@@ -175,7 +184,7 @@ export function BleToolbar() {
                       size="sm"
                       variant={chartConfig.enabled ? "secondary" : "outline"}
                       onClick={handleSmartEnableChart}
-                      disabled={lines.length === 0}
+                      disabled={!hasLines}
                       className="gap-1"
                     >
                       <Sparkles className="h-3.5 w-3.5" />
@@ -275,15 +284,12 @@ export function BleToolbar() {
           </div>
         </PopoverContent>
       </Popover>
-      <ChartConfigDialog
+      <LazyChartConfigDialog
         chartConfig={chartConfig}
         setChartConfig={setChartConfig}
         title="BLE 图表配置"
         allowBytesParsers
-        samples={lines
-          .filter((line) => line.direction === "rx")
-          .slice(-20)
-          .map(({ text, rawData }) => ({ text, rawData }))}
+        samples={chartSamples}
         open={chartConfigOpen}
         onOpenChange={setChartConfigOpen}
         trigger={null}

@@ -1,4 +1,4 @@
-import { cloneElement, isValidElement, useCallback, useState, useEffect, useRef } from "react";
+import { cloneElement, isValidElement, lazy, Suspense, useCallback, useState, useEffect, useRef } from "react";
 import { check, type Update, type DownloadEvent } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { Button } from "@/components/ui/button";
@@ -13,36 +13,10 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Download, RefreshCw, CheckCircle } from "lucide-react";
 import { useLogStore } from "@/stores/logStore";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 
-// 发布说明 Markdown 的紧凑渲染样式（仅 release notes 这一处使用）
-const releaseNotesComponents = {
-  h1: (props: React.HTMLAttributes<HTMLHeadingElement>) => (
-    <h3 className="mt-3 mb-1 text-sm font-semibold text-foreground first:mt-0" {...props} />
-  ),
-  h2: (props: React.HTMLAttributes<HTMLHeadingElement>) => (
-    <h3 className="mt-3 mb-1 text-sm font-semibold text-foreground first:mt-0" {...props} />
-  ),
-  h3: (props: React.HTMLAttributes<HTMLHeadingElement>) => (
-    <h3 className="mt-3 mb-1 text-sm font-semibold text-foreground first:mt-0" {...props} />
-  ),
-  p: (props: React.HTMLAttributes<HTMLParagraphElement>) => <p className="mb-1.5 last:mb-0" {...props} />,
-  ul: (props: React.HTMLAttributes<HTMLUListElement>) => (
-    <ul className="mb-1.5 list-disc space-y-0.5 pl-5" {...props} />
-  ),
-  ol: (props: React.HTMLAttributes<HTMLOListElement>) => (
-    <ol className="mb-1.5 list-decimal space-y-0.5 pl-5" {...props} />
-  ),
-  li: (props: React.LiHTMLAttributes<HTMLLIElement>) => <li className="marker:text-muted-foreground" {...props} />,
-  strong: (props: React.HTMLAttributes<HTMLElement>) => <strong className="font-semibold text-foreground" {...props} />,
-  code: (props: React.HTMLAttributes<HTMLElement>) => (
-    <code className="rounded bg-black/5 px-1 py-0.5 font-mono text-xs" {...props} />
-  ),
-  a: ({ href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-    <a href={href} target="_blank" rel="noreferrer" className="text-blue-600 underline" {...props} />
-  ),
-};
+// 发布说明的 Markdown 渲染链路（react-markdown + remark-gfm）体积约 370KB，
+// 只在弹出更新对话框时才用到，拆成独立 chunk 按需加载，不进首屏。
+const ReleaseNotes = lazy(() => import("./ReleaseNotes"));
 
 interface UpdateCheckerProps {
   autoCheck?: boolean;
@@ -192,9 +166,9 @@ export function UpdateChecker({ autoCheck = true, showTrigger = true, trigger }:
                       <div className="mt-4">
                         <div className="text-sm font-medium mb-2">更新内容:</div>
                         <div className="glass-section rounded-2xl p-3 max-h-48 overflow-y-auto text-sm text-muted-foreground">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={releaseNotesComponents}>
-                            {updateInfo.body}
-                          </ReactMarkdown>
+                          <Suspense fallback={<div className="whitespace-pre-wrap">{updateInfo.body}</div>}>
+                            <ReleaseNotes markdown={updateInfo.body} />
+                          </Suspense>
                         </div>
                       </div>
                     )}

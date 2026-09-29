@@ -12,6 +12,15 @@ import { recordSerialFileTx, sendSerialBytes, sendSerialPayload } from "@/lib/se
 import { cancelSerialFileTransfer, sendSerialFile } from "@/lib/tauri";
 import type { SerialFileTransferProgress, SerialFileTransferProtocol } from "@/lib/serialTypes";
 import { formatBytes } from "@/lib/formatters";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+const FILE_PROTOCOL_OPTIONS: { value: SerialFileTransferProtocol; label: string }[] = [
+  { value: "raw", label: "原始字节（默认）" },
+  { value: "xmodem", label: "XMODEM" },
+  { value: "xmodem-1k", label: "XMODEM-1K" },
+  { value: "ymodem", label: "YMODEM" },
+  { value: "zmodem", label: "ZMODEM" },
+];
 
 export function SerialSendBar() {
   const { connected, activeSourceType, sendSettings, terminalSettings, textViewMode } = useSerialStore(
@@ -281,27 +290,29 @@ export function SerialSendBar() {
                 <label htmlFor="serial-file-protocol" className="text-xs font-medium text-foreground">
                   文件发送协议
                 </label>
-                <select
-                  id="serial-file-protocol"
+                <Select
                   value={fileProtocol}
                   disabled={fileSending}
-                  onChange={(event) => setFileProtocol(event.target.value as SerialFileTransferProtocol)}
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  onValueChange={(value) => setFileProtocol(value as SerialFileTransferProtocol)}
                 >
-                  <option value="raw">原始字节（默认）</option>
-                  <option value="xmodem" disabled={activeSourceType === "udp" || activeSourceType === "simulation"}>
-                    XMODEM
-                  </option>
-                  <option value="xmodem-1k" disabled={activeSourceType === "udp" || activeSourceType === "simulation"}>
-                    XMODEM-1K
-                  </option>
-                  <option value="ymodem" disabled={activeSourceType === "udp" || activeSourceType === "simulation"}>
-                    YMODEM
-                  </option>
-                  <option value="zmodem" disabled={activeSourceType === "udp" || activeSourceType === "simulation"}>
-                    ZMODEM
-                  </option>
-                </select>
+                  <SelectTrigger id="serial-file-protocol" className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FILE_PROTOCOL_OPTIONS.map((option) => (
+                      <SelectItem
+                        key={option.value}
+                        value={option.value}
+                        disabled={
+                          option.value !== "raw" && (activeSourceType === "udp" || activeSourceType === "simulation")
+                        }
+                        className="text-xs"
+                      >
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {fileProtocol === "raw" && (
                   <div className="grid grid-cols-2 gap-2">
                     <label className="space-y-1 text-[11px] text-muted-foreground">

@@ -9,7 +9,7 @@ export interface ThemeScheme {
 export const THEME_SCHEMES: ThemeScheme[] = [
   {
     id: "graphite",
-    name: "Default",
+    name: "默认石墨",
     subtitle: "Neutral Graphite",
     swatches: ["#d9dee7", "#5a6578", "#414b5d"],
     vars: {
@@ -36,7 +36,7 @@ export const THEME_SCHEMES: ThemeScheme[] = [
   },
   {
     id: "sakura",
-    name: "Sakura Pink",
+    name: "樱花粉",
     subtitle: "Soft Petals",
     swatches: ["#f2dbe4", "#af4b6f", "#8e3f5b"],
     vars: {
@@ -60,7 +60,7 @@ export const THEME_SCHEMES: ThemeScheme[] = [
   },
   {
     id: "ocean",
-    name: "Ocean Blue",
+    name: "海洋蓝",
     subtitle: "Clear Tide",
     swatches: ["#d8e8f4", "#3d83b8", "#2e6c97"],
     vars: {
@@ -84,7 +84,7 @@ export const THEME_SCHEMES: ThemeScheme[] = [
   },
   {
     id: "aqua-glass",
-    name: "Aqua Glass",
+    name: "水色玻璃",
     subtitle: "Clear Water",
     swatches: ["#e2f7f7", "#43aeb8", "#287f8d"],
     vars: {
@@ -108,7 +108,7 @@ export const THEME_SCHEMES: ThemeScheme[] = [
   },
   {
     id: "forest",
-    name: "Forest Green",
+    name: "森林绿",
     subtitle: "Moss Grove",
     swatches: ["#dde9df", "#4d8a56", "#3f7448"],
     vars: {
@@ -132,7 +132,7 @@ export const THEME_SCHEMES: ThemeScheme[] = [
   },
   {
     id: "twilight",
-    name: "Twilight Violet",
+    name: "暮光紫",
     subtitle: "Soft Dusk",
     swatches: ["#e3def2", "#7761b8", "#5b4791"],
     vars: {
@@ -156,7 +156,7 @@ export const THEME_SCHEMES: ThemeScheme[] = [
   },
   {
     id: "amber",
-    name: "Amber Orange",
+    name: "琥珀橙",
     subtitle: "Warm Sunset",
     swatches: ["#efe3d2", "#bf7a1a", "#9d6310"],
     vars: {
@@ -180,7 +180,7 @@ export const THEME_SCHEMES: ThemeScheme[] = [
   },
   {
     id: "mint",
-    name: "Mint Aqua",
+    name: "薄荷青",
     subtitle: "Fresh Breeze",
     swatches: ["#dcefe8", "#409d87", "#2f7f6c"],
     vars: {
@@ -204,7 +204,7 @@ export const THEME_SCHEMES: ThemeScheme[] = [
   },
   {
     id: "rosewood",
-    name: "Rosewood Red",
+    name: "玫瑰木红",
     subtitle: "Muted Bloom",
     swatches: ["#ecd7db", "#b65467", "#934352"],
     vars: {
@@ -230,7 +230,7 @@ export const THEME_SCHEMES: ThemeScheme[] = [
 
 export const DEFAULT_THEME_SCHEME_ID = THEME_SCHEMES[0].id;
 
-export function getThemeSchemeById(id: string): ThemeScheme {
+function getThemeSchemeById(id: string): ThemeScheme {
   return THEME_SCHEMES.find((scheme) => scheme.id === id) ?? THEME_SCHEMES[0];
 }
 

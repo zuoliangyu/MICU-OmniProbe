@@ -16,14 +16,7 @@ import {
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { THEME_SCHEMES } from "@/lib/themeSchemes";
 import { useThemeStore } from "@/stores/themeStore";
@@ -72,7 +65,14 @@ const quickActions = [
   },
 ];
 
-export function SettingsCenterDialog() {
+/** 受控对话框本体；触发按钮在 TopBar，本体按需加载（见 SettingsCenterButton）。 */
+export default function SettingsCenterDialog({
+  open: dialogOpen,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [themeSectionOpen, setThemeSectionOpen] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
   const schemeId = useThemeStore((state) => state.schemeId);
@@ -146,14 +146,8 @@ export function SettingsCenterDialog() {
   };
 
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline" className="gap-2 px-3" title="打开设置中心">
-          <Settings2 className="h-4 w-4" />
-          <span>设置</span>
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="grid-rows-[auto_auto_minmax(0,1fr)] max-h-[min(88vh,760px)] max-w-4xl gap-3 overflow-hidden rounded-[14px] p-4">
+    <Dialog open={dialogOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="grid-rows-[auto_auto_minmax(0,1fr)] h-[min(88vh,760px)] max-w-4xl gap-3 overflow-hidden rounded-[14px] p-4">
         <DialogHeader className="space-y-1">
           <DialogTitle className="flex items-center gap-2">
             <Settings2 className="h-4 w-4 text-primary" />

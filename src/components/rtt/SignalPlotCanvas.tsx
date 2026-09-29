@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { downsampleEnvelopeIndices, resolveTimeWindowIndices } from "@/lib/downsampling";
 import { calculateSpectrum } from "@/lib/chartPresentation";
 import { formatChartNumber } from "@/lib/formatters";
+import { niceTicks } from "@/lib/axisTicks";
 import { useSmoothedSampleRate } from "@/hooks/useSmoothedSampleRate";
 import { Button } from "@/components/ui/button";
 import { ScanLine } from "lucide-react";
@@ -207,7 +208,8 @@ export function SignalPlotCanvas({
 
     const latestSec = (pointCount - 1) / sampleRate;
     const totalDurationSec = Math.max(latestSec, 0.001);
-    const baseVisibleDurationSec = Math.max(totalDurationSec * 1.05, 0.05);
+    // 右边界贴住最新采样点，不再额外留 5% 空白（否则刻度会出现 “+1.00 s” 这种超出数据的值）
+    const baseVisibleDurationSec = Math.max(totalDurationSec, 0.05);
     const visibleDurationSec = clamp(
       baseVisibleDurationSec / timeZoom,
       0.0005,
@@ -400,6 +402,8 @@ export function SignalPlotCanvas({
     return () => observer.disconnect();
   }, []);
 
+  // 画布尺寸只在容器尺寸变化时重设：给 canvas.width 赋值会重新分配并清空位图、
+  // 重置 context 状态，放在每帧绘制里代价不小。该 effect 声明在绘制之前，同一次提交里先执行。
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || size.width === 0 || size.height === 0) return;
@@ -409,7 +413,13 @@ export function SignalPlotCanvas({
     canvas.height = Math.floor(size.height * dpr);
     canvas.style.width = `${size.width}px`;
     canvas.style.height = `${size.height}px`;
+  }, [size]);
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || size.width === 0 || size.height === 0) return;
+
+    const dpr = window.devicePixelRatio || 1;
     const context = canvas.getContext("2d");
     if (!context) return;
 
@@ -604,7 +614,7 @@ export function SignalPlotCanvas({
         <canvas ref={canvasRef} className="h-full w-full cursor-crosshair" />
 
         {chartConfig.showLegend && (
-          <div className="pointer-events-none absolute left-4 right-4 top-4 flex flex-wrap gap-2">
+          <div className="pointer-events-none absolute left-[68px] right-6 top-1 flex flex-wrap justify-end gap-2">
             {visibleSeries.map((item) => {
               const latestValue = chartData[chartData.length - 1]?.values[item.key];
               const latestRawValue = rawChartData?.[rawChartData.length - 1]?.values[item.key];
@@ -1019,11 +1029,9 @@ function drawGrid(
     context.fillText(formatX(ratio), x, MARGIN.top + plotHeight + 18);
   }
 
-  const horizontalSteps = 5;
-  for (let step = 0; step <= horizontalSteps; step += 1) {
-    const ratio = step / horizontalSteps;
-    const y = MARGIN.top + ratio * plotHeight;
-    const value = yMax - ratio * (yMax - yMin);
+  const valueRange = yMax - yMin || 1;
+  for (const value of niceTicks(yMin, yMax, 5)) {
+    const y = MARGIN.top + ((yMax - value) / valueRange) * plotHeight;
     context.beginPath();
     context.moveTo(MARGIN.left, y);
     context.lineTo(MARGIN.left + plotWidth, y);

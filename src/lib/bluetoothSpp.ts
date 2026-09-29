@@ -13,7 +13,7 @@ function lowerSafe(value: string | null | undefined): string {
 }
 
 /** 判断给定串口是否疑似蓝牙 SPP 端口 */
-export function isBluetoothSppPort(port: SerialPortInfo): boolean {
+function isBluetoothSppPort(port: SerialPortInfo): boolean {
   if (port.port_type === "Bluetooth") return true;
 
   const haystack = `${lowerSafe(port.description)} ${lowerSafe(port.manufacturer)} ${lowerSafe(port.name)}`;

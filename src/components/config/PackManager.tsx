@@ -269,9 +269,11 @@ export function PackManager() {
         <CollapsibleTrigger asChild>
           <CardHeader className="py-3 cursor-pointer hover:bg-accent/50 transition-colors">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 <Package className="h-4 w-4" />
-                <CardTitle className="text-sm">CMSIS-Pack 管理</CardTitle>
+                <CardTitle className="truncate whitespace-nowrap text-sm" title="CMSIS-Pack 管理">
+                  Pack 管理
+                </CardTitle>
                 {packs.length > 0 && <span className="text-xs text-muted-foreground">({packs.length})</span>}
               </div>
               <div className="flex items-center gap-1">
@@ -283,7 +285,8 @@ export function PackManager() {
                     setShowDirectorySettings(!showDirectorySettings);
                   }}
                   className="gap-1 h-7"
-                  title="Pack目录设置"
+                  title="Pack 目录设置"
+                  aria-label="Pack 目录设置"
                 >
                   <Settings className="h-3 w-3" />
                 </Button>
@@ -368,7 +371,7 @@ export function PackManager() {
               <div className="text-center text-sm text-muted-foreground py-4">加载中...</div>
             ) : packs.length === 0 && !isDragging ? (
               <div className="text-center text-sm text-muted-foreground py-4">
-                <p>暂无已导入的Pack包</p>
+                <p>暂无已导入的 Pack 包</p>
                 <p className="text-xs mt-1">点击导入按钮或拖放 .pack 文件到此处</p>
               </div>
             ) : (

@@ -4,8 +4,8 @@ import { useRttStore } from "@/stores/rttStore";
 import { useLogStore } from "@/stores/logStore";
 import { cn } from "@/lib/utils";
 import type { RttLine } from "@/lib/types";
-import { parseColoredText } from "@/lib/rttColorParser";
-import { parseAnsiText } from "@/lib/ansiParser";
+import { LOG_LEVEL_COLORS, parseColoredSegments } from "@/lib/coloredSegments";
+import { formatTime } from "@/lib/formatters";
 import { useViewerSelection, formatRttLineForCopy, copyTextToClipboard, formatDataAsHex } from "@/lib/viewerCopy";
 import { exportTextAsTxt } from "@/lib/exporters";
 import { lineMatchesQuery } from "@/lib/lineSearch";
@@ -13,17 +13,19 @@ import { useSaveTxtContextMenu } from "@/components/ui/save-txt-context-menu";
 import { useShallow } from "zustand/react/shallow";
 
 export function RttViewer() {
-  const { lines, selectedChannel, searchQuery, autoScroll, showTimestamp, isRunning, displayMode } = useRttStore(
-    useShallow((state) => ({
-      lines: state.lines,
-      selectedChannel: state.selectedChannel,
-      searchQuery: state.searchQuery,
-      autoScroll: state.autoScroll,
-      showTimestamp: state.showTimestamp,
-      isRunning: state.isRunning,
-      displayMode: state.displayMode,
-    }))
-  );
+  const { lines, selectedChannel, searchQuery, autoScroll, showTimestamp, isRunning, rttConnected, displayMode } =
+    useRttStore(
+      useShallow((state) => ({
+        lines: state.lines,
+        selectedChannel: state.selectedChannel,
+        searchQuery: state.searchQuery,
+        autoScroll: state.autoScroll,
+        showTimestamp: state.showTimestamp,
+        isRunning: state.isRunning,
+        rttConnected: state.rttConnected,
+        displayMode: state.displayMode,
+      }))
+    );
   const addLog = useLogStore((state) => state.addLog);
 
   // 过滤行
@@ -44,9 +46,7 @@ export function RttViewer() {
     return filtered;
   }, [lines, selectedChannel, searchQuery]);
 
-  const { scrollRef, getSelectedRange, isSelectAll, highlight, clearSelection } = useViewerSelection(
-    filteredLines.length
-  );
+  const { scrollRef, getSelectedRange, isSelectAll, highlight, clearSelection } = useViewerSelection(filteredLines);
 
   const rowVirtualizer = useVirtualizer({
     count: filteredLines.length,
@@ -108,7 +108,11 @@ export function RttViewer() {
   if (filteredLines.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-        {isRunning ? "等待数据..." : "点击「启动」开始接收 RTT 数据"}
+        {!rttConnected
+          ? "请在右侧配置检查器选择探针和芯片，连接 RTT"
+          : isRunning
+            ? "等待数据..."
+            : "点击「启动」开始接收 RTT 数据"}
       </div>
     );
   }
@@ -167,58 +171,17 @@ interface RttLineItemProps {
 const RttLineItem = React.memo(function RttLineItem({ line, showTimestamp, displayMode, selected }: RttLineItemProps) {
   const colorParserConfig = useRttStore((state) => state.colorParserConfig);
 
-  const levelColors: Record<RttLine["level"], string> = {
-    error: "text-red-500",
-    warn: "text-yellow-500",
-    debug: "text-blue-400",
-    info: "text-foreground",
-  };
-
-  const formatTime = (date: Date) => {
-    const hours = date.getHours().toString().padStart(2, "0");
-    const minutes = date.getMinutes().toString().padStart(2, "0");
-    const seconds = date.getSeconds().toString().padStart(2, "0");
-    const ms = date.getMilliseconds().toString().padStart(3, "0");
-    return `${hours}:${minutes}:${seconds}.${ms}`;
-  };
-
-  // 同时支持 ANSI 和自定义颜色标记
-  const textSegments = useMemo(() => {
-    // 先解析 ANSI 转义序列
-    const ansiSegments = parseAnsiText(line.text);
-
-    // 如果启用了自定义标记，在每个 ANSI 片段中再解析自定义标记
-    if (colorParserConfig.enabled) {
-      const result: Array<{ text: string; className?: string; styles?: React.CSSProperties }> = [];
-
-      for (const ansiSeg of ansiSegments) {
-        const customSegments = parseColoredText(ansiSeg.text, colorParserConfig);
-
-        // 合并 ANSI 的 className 和自定义标记的 styles
-        for (const customSeg of customSegments) {
-          result.push({
-            text: customSeg.text,
-            className: ansiSeg.className,
-            styles: customSeg.styles,
-          });
-        }
-      }
-
-      return result;
-    } else {
-      // 只使用 ANSI 解析
-      return ansiSegments.map((seg) => ({
-        text: seg.text,
-        className: seg.className,
-        styles: {},
-      }));
-    }
-  }, [line.text, colorParserConfig]);
+  const textSegments = useMemo(
+    () => parseColoredSegments(line.text, colorParserConfig),
+    [line.text, colorParserConfig]
+  );
 
   return (
-    <div className={cn("flex gap-2 py-0.5 hover:bg-muted/50", levelColors[line.level], selected && "bg-primary/20")}>
+    <div
+      className={cn("flex gap-2 py-0.5 hover:bg-muted/50", LOG_LEVEL_COLORS[line.level], selected && "bg-primary/20")}
+    >
       {showTimestamp && (
-        <span className="text-muted-foreground shrink-0 select-none">[{formatTime(line.timestamp)}]</span>
+        <span className="text-muted-foreground shrink-0 select-none">[{formatTime(line.timestamp.getTime())}]</span>
       )}
       <span className="text-muted-foreground shrink-0 select-none">[{line.channel}]</span>
       {displayMode === "hex" ? (
