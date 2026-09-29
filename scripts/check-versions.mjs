@@ -1,5 +1,6 @@
 // 校验 AGENTS.md「版本发布清单」要求的 5 处版本号是否一致。
-// 以 package.json 为基准；不一致直接非零退出（版本不一致会导致构建失败）。
+// 默认以 package.json 为基准；传 `--expect <版本>` 或设置 EXPECTED_VERSION 时改以该版本为基准。
+// 不一致直接非零退出（版本不一致会导致构建失败）。
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -7,8 +8,11 @@ import path from "node:path";
 const root = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const read = (rel) => readFile(path.join(root, rel), "utf8");
 
+const expectIndex = process.argv.indexOf("--expect");
+const expectedArg = (expectIndex >= 0 ? process.argv[expectIndex + 1] : process.env.EXPECTED_VERSION)?.trim();
+
 const pkg = JSON.parse(await read("package.json"));
-const expected = pkg.version;
+const expected = expectedArg || pkg.version;
 
 const cargoToml = await read("src-tauri/Cargo.toml");
 const tauriConf = JSON.parse(await read("src-tauri/tauri.conf.json"));
@@ -44,7 +48,7 @@ const checks = [
 ];
 
 let failed = 0;
-console.log(`基准版本（package.json）：${expected}\n`);
+console.log(`基准版本（${expectedArg ? "指定" : "package.json"}）：${expected}\n`);
 
 for (const check of checks) {
   const ok = "ok" in check ? check.ok : check.actual === expected;
@@ -54,7 +58,7 @@ for (const check of checks) {
 }
 
 if (failed > 0) {
-  console.error(`\n${failed} 处版本号与 package.json (${expected}) 不一致`);
+  console.error(`\n${failed} 处版本号与基准版本 ${expected} 不一致`);
   process.exit(1);
 }
 console.log(`\n${checks.length} 处版本号一致`);

@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [switch]$NoInstall,
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -8,54 +8,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-function Test-Command {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Name
-    )
-
-    return $null -ne (Get-Command -Name $Name -ErrorAction SilentlyContinue)
-}
-
-function Get-PackageManager {
-    if (Test-Command -Name "pnpm") {
-        return "pnpm"
-    }
-
-    if (Test-Command -Name "npm") {
-        return "npm"
-    }
-
-    throw "Neither pnpm nor npm was found. Please install one of them first."
-}
-
-function Invoke-PackageManager {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$PackageManager,
-        [Parameter(Mandatory = $true)]
-        [string[]]$Arguments
-    )
-
-    & $PackageManager @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "Command failed: $PackageManager $($Arguments -join ' ')"
-    }
-}
-
-function Get-CleanArgs {
-    param(
-        [string[]]$Arguments
-    )
-
-    if ($null -eq $Arguments) {
-        return @()
-    }
-
-    return @(
-        $Arguments | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-    )
-}
+. (Join-Path -Path $PSScriptRoot -ChildPath "scripts\common.ps1")
 
 function Test-PortBindable {
     param(
@@ -123,21 +76,14 @@ $tauriConfigOverridePath = $null
 Push-Location -LiteralPath $scriptDir
 
 try {
-    if (-not (Test-Command -Name "node")) {
-        throw "Node.js 18+ was not found. Please install Node.js first."
-    }
+    Assert-NodeInstalled
 
     $packageManager = Get-PackageManager
 
     Write-Host "Working directory: $scriptDir" -ForegroundColor Cyan
     Write-Host "Package manager: $packageManager" -ForegroundColor Cyan
 
-    $nodeModulesPath = Join-Path -Path $scriptDir -ChildPath "node_modules"
-    $needInstall = (-not $NoInstall) -and (-not (Test-Path -LiteralPath $nodeModulesPath))
-    if ($needInstall) {
-        Write-Host "node_modules not found. Installing frontend dependencies..." -ForegroundColor Yellow
-        Invoke-PackageManager -PackageManager $packageManager -Arguments @("install")
-    }
+    Install-NodeModulesIfMissing -ProjectDir $scriptDir -PackageManager $packageManager -NoInstall:$NoInstall
 
     Write-Host "Starting Tauri dev..." -ForegroundColor Green
     $cleanTauriArgs = Get-CleanArgs -Arguments $TauriArgs

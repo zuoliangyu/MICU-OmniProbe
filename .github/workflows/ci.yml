@@ -12,6 +12,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
@@ -38,15 +41,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: TypeScript
-        run: pnpm exec tsc --noEmit
-
       - name: ESLint
         run: pnpm lint
 
       - name: Prettier
         run: pnpm format:check
 
+      # pnpm build = tsc && vite build，类型检查已包含在内
       - name: Production build
         run: pnpm build
 

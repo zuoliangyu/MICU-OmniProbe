@@ -17,7 +17,6 @@ on:
 permissions:
   actions: write
   contents: write
-  pull-requests: write
 
 env:
   CARGO_INCREMENTAL: 0
@@ -39,7 +38,66 @@ jobs:
             -f version="$VERSION" \
             -f commit_sha="$COMMIT_SHA"
 
+  # 发版前先跑一遍与 CI 相同的检查，避免版本号不一致或未通过检查的提交直接出包
+  check:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.commit_sha || github.sha }}
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libudev-dev \
+            libusb-1.0-0-dev
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: ESLint
+        run: pnpm lint
+
+      # pnpm build 内含 tsc
+      - name: Production build
+        run: pnpm build
+
+      # 含 check-versions.mjs：校验 5 处版本号一致
+      - name: 集成检查
+        run: pnpm test
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          key: release-check
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
   build:
+    needs: check
     if: github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
@@ -112,70 +170,18 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libudev-dev \
-            libusb-1.0-0-dev \
-            imagemagick
-
-      # macOS 依赖
-      - name: Install macOS dependencies
-        if: runner.os == 'macOS'
-        run: |
-          brew install imagemagick
-
-      # 生成各平台所需的图标格式
-      - name: Generate icons
-        shell: bash
-        run: |
-          cd src-tauri/icons
-          # 生成不同尺寸的PNG (确保RGBA格式)
-          if command -v magick &> /dev/null; then
-            magick icon.png -resize 32x32 -define png:color-type=6 32x32.png
-            magick icon.png -resize 128x128 -define png:color-type=6 128x128.png
-            magick icon.png -resize 256x256 -define png:color-type=6 128x128@2x.png
-          else
-            convert icon.png -resize 32x32 -define png:color-type=6 32x32.png
-            convert icon.png -resize 128x128 -define png:color-type=6 128x128.png
-            convert icon.png -resize 256x256 -define png:color-type=6 128x128@2x.png
-          fi
-          # macOS icns
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            mkdir -p icon.iconset
-            sips -z 16 16 icon.png --out icon.iconset/icon_16x16.png
-            sips -z 32 32 icon.png --out icon.iconset/icon_16x16@2x.png
-            sips -z 32 32 icon.png --out icon.iconset/icon_32x32.png
-            sips -z 64 64 icon.png --out icon.iconset/icon_32x32@2x.png
-            sips -z 128 128 icon.png --out icon.iconset/icon_128x128.png
-            sips -z 256 256 icon.png --out icon.iconset/icon_128x128@2x.png
-            sips -z 256 256 icon.png --out icon.iconset/icon_256x256.png
-            sips -z 512 512 icon.png --out icon.iconset/icon_256x256@2x.png
-            sips -z 512 512 icon.png --out icon.iconset/icon_512x512.png
-            sips -z 512 512 icon.png --out icon.iconset/icon_512x512@2x.png
-            iconutil -c icns icon.iconset -o icon.icns
-            rm -rf icon.iconset
-          fi
-          ls -la
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: '20'
+            libusb-1.0-0-dev
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
           version: 9
 
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Setup pnpm cache
-        uses: actions/cache@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
         with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+          node-version: '22'
+          cache: pnpm
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -189,7 +195,7 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Install frontend dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       # 提取 CHANGELOG 中当前版本的更新内容
       - name: Extract changelog
@@ -217,7 +223,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -250,7 +256,7 @@ jobs:
             完整更新历史: [CHANGELOG.md](https://github.com/zuoliangyu/MICU-OmniProbe/blob/main/CHANGELOG.md)
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: true
+          uploadUpdaterJson: true
           args: --target ${{ matrix.target }} ${{ matrix.os_name == 'windows' && '--bundles nsis' || '' }}
 
       # Windows 便携版：上传单独的 exe 文件
@@ -293,7 +299,7 @@ jobs:
           esac
 
       - name: Upload platform info
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: platform-${{ matrix.target }}
           path: platform-info/
@@ -452,7 +458,7 @@ jobs:
           gh release delete-asset $TAG latest.json -y 2>/dev/null || true
 
       - name: Upload merged latest.json to Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ needs.build.outputs.version }}
           files: latest.json

@@ -25,21 +25,27 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 只扫 JS/TS：无需构建、速度快。
-        # Rust 的 CodeQL 支持仍是 public preview 且需要完整编译，暂不纳入。
-        language: ['javascript-typescript']
+        # 三种语言都用 build-mode: none，无需编译即可扫描
+        include:
+          - language: javascript-typescript
+            build-mode: none
+          - language: actions
+            build-mode: none
+          - language: rust
+            build-mode: none
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
           queries: security-and-quality
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: '/language:${{ matrix.language }}'
