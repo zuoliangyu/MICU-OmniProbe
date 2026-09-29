@@ -48,5 +48,4 @@ nul
 
 # 本地开发过程文档不入库；docs/ 下的用户文档与 AGENTS.md 需要正常跟踪。
 docs/superpowers/
-docs/UPDATE_GUIDE.md
 docs/UPDATE_SETUP.md

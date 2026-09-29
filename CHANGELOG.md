@@ -13,6 +13,30 @@
 - 更换全平台应用图标，应用 ID 变更为 `com.micu.omniprobe`
 - 首次启动时自动把旧版 EK-OmniProbe 的设置、界面状态和 Pack 数据迁移到新目录，无需重新配置
 - Windows 安装新版时自动迁移旧安装目录中的 Pack 数据，并静默卸载旧版 EK-OmniProbe 及其快捷方式
+- 自动断开改为从连接成功时开始计时
+- 自定义背景图改为按需授权访问，应用不再可读取任意本地文件
+- 移除未生效的"烧录算法"和"自定义 Flash 大小"选项
+- 首屏加载体积减少约 22%，设置中心、协议设计器、图表配置等对话框改为按需加载
+
+### 新增
+
+- 日志分析空状态提供"导入日志""模拟数据"快捷按钮
+- 蓝牙发送支持 GBK 编码；蓝牙设备掉线后自动更新连接状态
+- 源码调试"单步跳过"真正跨过函数调用，"单步跳出"超时后自动暂停并返回实际位置
+
+### 修复
+
+- 修复所有对话框关闭按钮错位到左下角、对话框半透明透出背景的问题
+- 修复控制面板"组件属性"面板遮挡画布、图表图例遮挡 Y 轴刻度的问题
+- 修复日志缓冲区满后选区漂移、复制内容与选中行不一致的问题
+- 修复快速停止再启动串口/RTT 时出现两路读取导致数据乱序的问题
+- 修复 RTT 出错原因被随后的状态覆盖、目标复位后 RTT 静默无数据的问题
+- 修复自定义地址烧录 BIN 后校验必定失败的问题
+- 扇区擦除模式改用按区域擦除，不再整片写入 0xFF
+- 修复异常 Pack 导致进程崩溃、设备名含特殊字符时目标生成失败的问题
+- 修复烧录、连接等耗时操作期间界面卡顿、其他数据流停止上报的问题
+- AI 桥接拒绝非 JSON 请求，防止网页跨协议写入串口
+- 图表 Y 轴使用整齐刻度；统一界面下拉框样式并修正多处中英混杂文案
 
 ## [2.10.0] - 2026-08-14
 
@@ -1770,19 +1794,69 @@ SEGGER_RTT_printf(0, "%.1f,%.1f,%.1f\n", temp, humi, press);
 
 ---
 
+[未发布]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.10.0...HEAD
+[2.10.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.9.0...v2.10.0
+[2.9.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.8.1...v2.9.0
+[2.8.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.8.0...v2.8.1
+[2.8.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.7.5...v2.8.0
+[2.7.5]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.7.4...v2.7.5
+[2.7.4]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.7.3...v2.7.4
+[2.7.3]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.7.2...v2.7.3
+[2.7.2]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.7.1...v2.7.2
+[2.7.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.7.0...v2.7.1
+[2.7.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.6.0...v2.7.0
+[2.6.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.5.0...v2.6.0
+[2.5.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.4.1...v2.5.0
+[2.4.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.4.0...v2.4.1
+[2.4.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.3.2...v2.4.0
+[2.3.2]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.3.1...v2.3.2
+[2.3.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.3.0...v2.3.1
+[2.3.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.2.0...v2.3.0
+[2.2.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.9.0...v2.0.0
+[1.9.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.8.1...v1.9.0
+[1.8.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.8.0...v1.8.1
+[1.8.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.7.1...v1.8.0
+[1.7.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.7.0...v1.7.1
+[1.7.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.6.0...v1.7.0
+[1.6.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.5.1...v1.6.0
+[1.5.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.5.0...v1.5.1
+[1.5.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.3.5...v1.4.0
+[1.3.5]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.3.4...v1.3.5
+[1.3.4]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.3.3...v1.3.4
+[1.3.3]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.3.2...v1.3.3
+[1.3.2]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.3.1...v1.3.2
+[1.3.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.2.5...v1.3.0
+[1.2.5]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.2.4...v1.2.5
+[1.2.4]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.2.3...v1.2.4
+[1.2.3]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.2.2...v1.2.3
+[1.2.2]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.2.1...v1.2.2
+[1.2.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.9.5...v1.0.0
 [0.9.5]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.9.3...v0.9.4
-[0.9.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.8.0...v0.9.0
 [0.9.3]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.9.2...v0.9.3
+[0.9.2]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.9.1...v0.9.2
+[0.9.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.9.0...v0.9.1
+[0.9.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.5.6...v0.6.0
+[0.5.6]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.5.5...v0.5.6
+[0.5.5]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.5.4...v0.5.5
+[0.5.4]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.5.3...v0.5.4
+[0.5.3]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.5.2...v0.5.3
+[0.5.2]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/zuoliangyu/MICU-OmniProbe/compare/v0.4.0...v0.4.1

@@ -146,7 +146,7 @@ RTT 支持实时数据图表，详见 [RTT 图表功能指南](RTT_CHART_GUIDE.m
 
 支持批量拖放 .pack 文件到 Pack 管理器：
 
-- 展开"CMSIS-Pack 管理"卡片
+- 展开"Pack 管理"卡片
 - 拖放 .pack 文件到卡片区域
 - 支持同时拖放多个文件
 

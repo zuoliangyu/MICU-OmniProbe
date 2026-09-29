@@ -3,6 +3,7 @@
   - [快速入门](QUICK_START.md)
 
 - 数据与控制面板
+  - [日志分析](LOG_ANALYSIS_GUIDE.md)
   - [输入数据解析格式](DATA_FORMAT_GUIDE.md)
   - [数据滤波与 MATLAB](MATLAB_FILTER_GUIDE.md)
   - [控制面板组件](SERIAL_CONTROL_PANEL_GUIDE.md)
@@ -20,6 +21,7 @@
 - 蓝牙与设置
   - [蓝牙用户手册](BLUETOOTH_USER_MANUAL.md)
   - [设置中心](SETTINGS_GUIDE.md)
+  - [自动更新](UPDATE_GUIDE.md)
 
 - [项目主页](https://github.com/zuoliangyu/MICU-OmniProbe)
 - [下载最新版](https://github.com/zuoliangyu/MICU-OmniProbe/releases/latest)
