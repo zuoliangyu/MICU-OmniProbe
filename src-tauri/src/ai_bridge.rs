@@ -322,6 +322,15 @@ impl AiBridgeState {
             let mut line_buffer = Vec::with_capacity(256);
             while bridge.running.load(Ordering::SeqCst) {
                 match read_line_limited(&mut reader, &mut line_buffer) {
+                    Ok(Some(line)) if !is_json_object_line(&line) => {
+                        // 浏览器可以用 no-cors 请求把 HTTP 报文打到本端口，body 里夹带合法命令；
+                        // 协议只接受逐行 JSON 对象，遇到其他内容（例如 HTTP 请求行）直接断开。
+                        let _ = tx.send(error_response(
+                            None,
+                            "协议要求每行一个 JSON 对象，连接已关闭".to_string(),
+                        ));
+                        break;
+                    }
                     Ok(Some(line)) => {
                         let response = bridge.handle_client_line(&line, &serial_state);
                         if tx.send(response).is_err() {
@@ -444,6 +453,13 @@ fn read_line_limited<R: BufRead>(reader: &mut R, bytes: &mut Vec<u8>) -> io::Res
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "AI 命令必须使用 UTF-8"))
 }
 
+fn is_json_object_line(line: &str) -> bool {
+    matches!(
+        serde_json::from_str::<serde_json::Value>(line),
+        Ok(serde_json::Value::Object(_))
+    )
+}
+
 fn error_response(id: Option<&str>, error: String) -> String {
     json!({
         "schema": SCHEMA,
@@ -537,9 +553,18 @@ fn parse_client_command(line: &str, allow_write: bool) -> Result<ClientCommand, 
 mod tests {
     use super::*;
     use crate::state::SerialState;
-    use std::io::{BufRead, BufReader};
+    use std::io::{BufRead, BufReader, Write};
     use std::net::TcpStream;
     use std::sync::Arc;
+
+    #[test]
+    fn only_json_object_lines_are_accepted() {
+        assert!(is_json_object_line(r#"{"type":"serial.write"}"#));
+        assert!(!is_json_object_line("POST / HTTP/1.1"));
+        assert!(!is_json_object_line("Content-Type: text/plain"));
+        assert!(!is_json_object_line("[1,2]"));
+        assert!(!is_json_object_line(""));
+    }
 
     #[test]
     fn serial_write_is_rejected_until_user_enables_it() {
@@ -578,6 +603,33 @@ mod tests {
             parse_client_command(&line, true).unwrap_err(),
             "串口命令不能超过 1024 字节"
         );
+    }
+
+    #[test]
+    fn http_request_closes_connection_before_body_runs() {
+        let bridge = Arc::new(AiBridgeState::default());
+        let status = bridge.start(0, true, Arc::new(SerialState::default())).unwrap();
+        let mut stream = TcpStream::connect(("127.0.0.1", status.port)).unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        stream
+            .write_all(b"POST / HTTP/1.1\r\nHost: x\r\n\r\n{\"type\":\"serial.write\",\"id\":\"x\",\"text\":\"a\"}\n")
+            .unwrap();
+        let mut reader = BufReader::new(stream);
+
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&line).unwrap()["type"],
+            "hello"
+        );
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&line).unwrap()["ok"], false);
+        line.clear();
+        assert_eq!(reader.read_line(&mut line).unwrap(), 0, "服务端应已关闭连接");
+        bridge.stop();
     }
 
     #[test]

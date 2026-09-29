@@ -40,124 +40,118 @@ pub fn list_serial_ports_cmd() -> Result<Vec<SerialPortInfo>, String> {
 }
 
 /// Connect to a serial port
+///
+/// TCP 连接最长要等 5 秒，放到阻塞线程里做，避免同步命令卡住主线程/UI。
 #[tauri::command]
-pub fn connect_serial(config: SerialConfig, state: State<'_, AppState>) -> Result<(), String> {
-    // Stop any existing polling first
-    state.serial_state.set_running(false);
-    state.serial_state.cancel_file_transfer();
+pub async fn connect_serial(config: SerialConfig, state: State<'_, AppState>) -> Result<(), String> {
+    let serial_state = Arc::clone(&state.serial_state);
+    run_blocking(move || {
+        // Stop any existing polling first
+        serial_state.run.stop();
+        serial_state.cancel_file_transfer();
+        take_and_disconnect(&serial_state);
 
-    // Disconnect existing connection
-    {
-        let mut guard = state.serial_state.datasource.lock();
-        if let Some(ds) = guard.as_mut() {
-            let _ = ds.disconnect();
-        }
-        *guard = None;
-    }
+        // Create new data source based on config
+        let mut datasource: Box<dyn DataSource> = match config {
+            SerialConfig::Local {
+                port,
+                baud_rate,
+                data_bits,
+                stop_bits,
+                parity,
+                flow_control,
+                dtr,
+                rts,
+                reconnect,
+            } => Box::new(LocalSerial::new(
+                port,
+                baud_rate,
+                data_bits,
+                stop_bits,
+                &parity,
+                &flow_control,
+                dtr,
+                rts,
+                reconnect,
+            )),
+            SerialConfig::Tcp { host, port, reconnect } => Box::new(TcpSerial::new(host, port, reconnect)),
+            SerialConfig::Udp {
+                local_host,
+                local_port,
+                remote_host,
+                remote_port,
+            } => Box::new(UdpSerial::new(local_host, local_port, remote_host, remote_port)),
+        };
 
-    // Create new data source based on config
-    let mut datasource: Box<dyn DataSource> = match config {
-        SerialConfig::Local {
-            port,
-            baud_rate,
-            data_bits,
-            stop_bits,
-            parity,
-            flow_control,
-            dtr,
-            rts,
-            reconnect,
-        } => Box::new(LocalSerial::new(
-            port,
-            baud_rate,
-            data_bits,
-            stop_bits,
-            &parity,
-            &flow_control,
-            dtr,
-            rts,
-            reconnect,
-        )),
-        SerialConfig::Tcp { host, port, reconnect } => Box::new(TcpSerial::new(host, port, reconnect)),
-        SerialConfig::Udp {
-            local_host,
-            local_port,
-            remote_host,
-            remote_port,
-        } => Box::new(UdpSerial::new(local_host, local_port, remote_host, remote_port)),
-    };
-
-    // Connect
-    datasource.connect()?;
-
-    // Store the data source
-    *state.serial_state.datasource.lock() = Some(datasource);
-    state.serial_state.line_buffer.lock().clear();
-
-    Ok(())
+        // 在锁外建立连接，期间不挡住其他命令
+        datasource.connect()?;
+        *serial_state.datasource.lock() = Some(datasource);
+        Ok(())
+    })
+    .await
 }
 
 /// Disconnect from serial port
 #[tauri::command]
-pub fn disconnect_serial(state: State<'_, AppState>) -> Result<(), String> {
-    // Stop polling first
-    state.serial_state.set_running(false);
-    state.serial_state.cancel_file_transfer();
-
-    // Disconnect
-    {
-        let mut guard = state.serial_state.datasource.lock();
-        if let Some(ds) = guard.as_mut() {
-            ds.disconnect()?;
+pub async fn disconnect_serial(state: State<'_, AppState>) -> Result<(), String> {
+    let serial_state = Arc::clone(&state.serial_state);
+    run_blocking(move || {
+        // Stop polling first
+        serial_state.run.stop();
+        serial_state.cancel_file_transfer();
+        match serial_state.datasource.lock().take() {
+            Some(mut ds) => ds.disconnect(),
+            None => Ok(()),
         }
-        *guard = None;
-    }
-
-    state.serial_state.line_buffer.lock().clear();
-
-    Ok(())
+    })
+    .await
 }
 
-/// Write data to serial port
-#[tauri::command]
-pub async fn write_serial(data: Vec<u8>, state: State<'_, AppState>) -> Result<usize, String> {
-    if state.serial_state.is_file_transferring() {
-        return Err("文件传输中，暂不能发送其他数据".to_string());
+/// 取出当前数据源并断开；取出后立即释放锁，断开过程不占用锁
+fn take_and_disconnect(serial_state: &SerialState) {
+    let previous = serial_state.datasource.lock().take();
+    if let Some(mut ds) = previous {
+        let _ = ds.disconnect();
     }
-    // 克隆 Arc 以便在 spawn_blocking 中使用
-    let serial_state = Arc::clone(&state.serial_state);
+}
 
-    tokio::task::spawn_blocking(move || {
+async fn run_blocking<T: Send + 'static>(
+    task: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tokio::task::spawn_blocking(task)
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
+}
+
+/// 普通串口写入；文件传输期间拒绝，避免协议帧与用户命令交错
+async fn write_serial_bytes(serial_state: &Arc<SerialState>, data: Vec<u8>) -> Result<usize, String> {
+    let serial_state = Arc::clone(serial_state);
+    run_blocking(move || {
         if serial_state.is_file_transferring() {
             return Err("文件传输中，暂不能发送其他数据".to_string());
         }
         let mut guard = serial_state.datasource.lock();
         let ds = guard.as_mut().ok_or_else(|| "Serial port not connected".to_string())?;
-
         ds.write(&data)
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+/// Write data to serial port
+#[tauri::command]
+pub async fn write_serial(data: Vec<u8>, state: State<'_, AppState>) -> Result<usize, String> {
+    write_serial_bytes(&state.serial_state, data).await
 }
 
 /// Write string to serial port with optional encoding and line ending
-fn encode_serial_text(text: String, encoding: &str, line_ending: &str) -> Vec<u8> {
+pub(crate) fn encode_serial_text(text: String, encoding: &str, line_ending: &str) -> Vec<u8> {
     let text = match line_ending {
         "lf" => format!("{}\n", text),
         "crlf" => format!("{}\r\n", text),
         "cr" => format!("{}\r", text),
         _ => text,
     };
-
-    match encoding.to_lowercase().as_str() {
-        "utf-8" | "utf8" => text.into_bytes(),
-        "ascii" => text
-            .chars()
-            .map(|character| if character.is_ascii() { character as u8 } else { b'?' })
-            .collect(),
-        "gbk" | "gb2312" => encoding_rs::GBK.encode(&text).0.into_owned(),
-        _ => text.into_bytes(),
-    }
+    crate::text_encoding::encode_text(&text, encoding)
 }
 
 #[cfg(test)]
@@ -180,25 +174,7 @@ pub async fn write_serial_string(
     line_ending: String,
     state: State<'_, AppState>,
 ) -> Result<usize, String> {
-    if state.serial_state.is_file_transferring() {
-        return Err("文件传输中，暂不能发送其他数据".to_string());
-    }
-    let data = encode_serial_text(text, &encoding, &line_ending);
-
-    // 克隆 Arc 以便在 spawn_blocking 中使用
-    let serial_state = Arc::clone(&state.serial_state);
-
-    tokio::task::spawn_blocking(move || {
-        if serial_state.is_file_transferring() {
-            return Err("文件传输中，暂不能发送其他数据".to_string());
-        }
-        let mut guard = serial_state.datasource.lock();
-        let ds = guard.as_mut().ok_or_else(|| "Serial port not connected".to_string())?;
-
-        ds.write(&data)
-    })
-    .await
-    .map_err(|e| format!("Task join error: {}", e))?
+    write_serial_bytes(&state.serial_state, encode_serial_text(text, &encoding, &line_ending)).await
 }
 
 struct FileTransferGuard(Arc<SerialState>);
@@ -274,11 +250,10 @@ pub async fn start_serial(
         return Err("Serial port not connected".to_string());
     }
 
-    // 兼容字段：前端可能仍传 poll_interval，但读线程不再使用。
-    *state.serial_state.poll_interval_ms.lock() = poll_interval.unwrap_or(5);
-    state.serial_state.set_running(true);
-
+    // 兼容字段：前端可能仍传 poll_interval，但读线程常驻 read()，不再使用轮询间隔。
+    let _ = poll_interval;
     let serial_state = Arc::clone(&state.serial_state);
+    let generation = serial_state.run.start();
 
     // mpsc 通道：reader -> async accumulator。无界，让读线程永远不会被反压阻塞。
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<SerialDataChunk>();
@@ -286,13 +261,14 @@ pub async fn start_serial(
     // ===== 读线程：独立 OS 线程，循环 read() 并把每段 chunk 发到 channel =====
     let reader_state = Arc::clone(&serial_state);
     let reader_app = app.clone();
-    let reader_handle = std::thread::Builder::new()
+    std::thread::Builder::new()
         .name("serial-reader".into())
         .spawn(move || {
             let mut local_buf = vec![0u8; 16384];
 
             'outer: loop {
-                if !reader_state.is_running() {
+                // 代次变化说明已被停止或被新一轮启动取代，旧线程必须退出
+                if !reader_state.run.is_current(generation) {
                     break;
                 }
 
@@ -340,15 +316,16 @@ pub async fn start_serial(
                                     let _ = ds.disconnect();
                                 }
                             }
-                            reader_state.set_running(false);
-                            let _ = reader_app.emit(
-                                "serial-status",
-                                SerialStatusEvent {
-                                    connected: false,
-                                    running: false,
-                                    error: Some(e),
-                                },
-                            );
+                            if reader_state.run.finish(generation) {
+                                let _ = reader_app.emit(
+                                    "serial-status",
+                                    SerialStatusEvent {
+                                        connected: false,
+                                        running: false,
+                                        error: Some(e),
+                                    },
+                                );
+                            }
                             break;
                         }
 
@@ -361,24 +338,31 @@ pub async fn start_serial(
                             },
                         );
 
-                        // 指数退避重连
+                        // 指数退避重连。重连期间把数据源取出锁外处理，
+                        // TCP 连接最长 5 秒，不能一直占着锁挡住 disconnect/write。
                         let mut delay_ms: u64 = 1000;
                         loop {
                             std::thread::sleep(Duration::from_millis(delay_ms));
-                            if !reader_state.is_running() {
+                            if !reader_state.run.is_current(generation) {
                                 break 'outer;
                             }
 
-                            let connect_result = {
-                                let mut guard = reader_state.datasource.lock();
-                                match guard.as_mut() {
-                                    Some(ds) => {
-                                        let _ = ds.disconnect();
-                                        ds.connect()
-                                    }
-                                    None => Err("数据源已不存在".to_string()),
-                                }
+                            let Some(mut ds) = reader_state.datasource.lock().take() else {
+                                break 'outer;
                             };
+                            let _ = ds.disconnect();
+                            let connect_result = ds.connect();
+
+                            // 放回前再确认：期间用户可能已断开或重新连接了别的端口
+                            {
+                                let mut guard = reader_state.datasource.lock();
+                                if !reader_state.run.is_current(generation) || guard.is_some() {
+                                    drop(guard);
+                                    let _ = ds.disconnect();
+                                    break 'outer;
+                                }
+                                *guard = Some(ds);
+                            }
 
                             match connect_result {
                                 Ok(_) => {
@@ -403,9 +387,6 @@ pub async fn start_serial(
             // tx drop -> accumulator 收到 None 退出
         })
         .map_err(|e| format!("Failed to spawn reader thread: {}", e))?;
-
-    // 持有 join handle 但不阻塞主线程（读线程会自然退出）。
-    drop(reader_handle);
 
     // ===== async accumulator：batch + emit =====
     let accumulator_state = Arc::clone(&serial_state);
@@ -473,8 +454,8 @@ pub async fn start_serial(
         }
 
         // 正常停止时同步 running=false；读失败已经由 reader 上报，不能再用
-        // 无错误的结束事件覆盖断线原因。
-        if accumulator_state.is_connected() {
+        // 无错误的结束事件覆盖断线原因；已被新一轮启动取代时也不能发。
+        if !accumulator_state.is_running() && accumulator_state.is_connected() {
             let _ = app.emit(
                 "serial-status",
                 SerialStatusEvent {
@@ -492,16 +473,14 @@ pub async fn start_serial(
 /// Stop serial polling
 #[tauri::command]
 pub fn stop_serial(state: State<'_, AppState>) -> Result<(), String> {
-    state.serial_state.set_running(false);
+    state.serial_state.run.stop();
     Ok(())
 }
 
 /// Clear serial buffer
 #[tauri::command]
 pub fn clear_serial_buffer(state: State<'_, AppState>) -> Result<(), String> {
-    state.serial_state.line_buffer.lock().clear();
-
-    // Reset stats
+    // 行缓冲在前端维护，后端只需重置统计
     if let Some(ds) = state.serial_state.datasource.lock().as_mut() {
         ds.reset_stats();
     }

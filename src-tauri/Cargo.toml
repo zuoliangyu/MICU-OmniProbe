@@ -38,12 +38,12 @@ object = "0.36"
 addr2line = "0.24"
 gimli = "0.31"
 base64 = "0.22"
-serialport = "4.3"
+serialport = "4.10"
 zmodem2 = "0.7.1"
 btleplug = "0.11"
 uuid = { version = "1", features = ["serde", "v4"] }
 futures = "0.3"
-tauri-plugin-clipboard-manager = "2.3.2"
+tauri-plugin-clipboard-manager = "2.4"
 
 [features]
 default = ["custom-protocol"]

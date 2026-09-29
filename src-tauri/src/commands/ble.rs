@@ -3,7 +3,7 @@
 //! 扫描、连接、服务发现、订阅 notify、写入。
 //! 数据流仿照 serial 模块：notify 事件经后台任务批处理 emit `ble-data`，状态变化 emit `ble-status`。
 
-use btleplug::api::{Central, CharPropFlags, Peripheral as _, ScanFilter, WriteType};
+use btleplug::api::{Central, CentralEvent, CharPropFlags, Peripheral as _, ScanFilter, WriteType};
 use futures::stream::StreamExt;
 use serde::Serialize;
 use std::time::{Duration, Instant};
@@ -48,10 +48,13 @@ pub async fn ble_start_scan(timeout_ms: Option<u64>, state: State<'_, AppState>)
     let ble = state.ble_state.clone();
     let adapter = ensure_adapter(&ble).await?;
 
-    if ble.is_scanning() {
+    // 先登记取消通知再进入扫描状态：ble_stop_scan 只要看到“扫描中”就一定能唤醒这里
+    let cancelled = ble.scan_cancel.notified();
+    tokio::pin!(cancelled);
+    cancelled.as_mut().enable();
+    if !ble.try_begin_scan() {
         return Err("已在扫描中".into());
     }
-    ble.set_scanning(true);
 
     if let Err(e) = adapter.start_scan(ScanFilter::default()).await {
         ble.set_scanning(false);
@@ -59,7 +62,10 @@ pub async fn ble_start_scan(timeout_ms: Option<u64>, state: State<'_, AppState>)
     }
 
     let timeout = timeout_ms.unwrap_or(5000).clamp(500, 30000);
-    tokio::time::sleep(Duration::from_millis(timeout)).await;
+    tokio::select! {
+        _ = tokio::time::sleep(Duration::from_millis(timeout)) => {}
+        _ = cancelled => {}
+    }
 
     let _ = adapter.stop_scan().await;
     ble.set_scanning(false);
@@ -105,9 +111,13 @@ pub async fn ble_start_scan(timeout_ms: Option<u64>, state: State<'_, AppState>)
 #[tauri::command]
 pub async fn ble_stop_scan(state: State<'_, AppState>) -> Result<(), String> {
     let ble = state.ble_state.clone();
-    let adapter = ensure_adapter(&ble).await?;
-    let _ = adapter.stop_scan().await;
-    ble.set_scanning(false);
+    if ble.is_scanning() {
+        // 让正在等待的 ble_start_scan 提前结束，由它停止扫描并返回已发现的设备
+        ble.scan_cancel.notify_waiters();
+    } else {
+        let adapter = ensure_adapter(&ble).await?;
+        let _ = adapter.stop_scan().await;
+    }
     Ok(())
 }
 
@@ -124,17 +134,8 @@ pub async fn ble_connect(
     let ble = state.ble_state.clone();
     let adapter = ensure_adapter(&ble).await?;
 
-    // 先停掉旧的 notify 订阅
-    stop_notify(&ble).await;
-
-    // 断开旧连接
-    {
-        let mut guard = ble.connected.lock().await;
-        if let Some(p) = guard.take() {
-            let _ = p.disconnect().await;
-        }
-    }
-    *ble.connected_info.lock() = None;
+    // 先停掉旧的订阅并断开旧连接
+    release_connection(&ble).await;
 
     // 找到对应 peripheral
     let peripheral = {
@@ -171,9 +172,11 @@ pub async fn ble_connect(
         connected: true,
     };
 
+    let peripheral_id = peripheral.id();
     *ble.connected.lock().await = Some(peripheral);
     *ble.connected_info.lock() = Some(info.clone());
     ble.reset_stats();
+    watch_disconnect(&ble, &adapter, peripheral_id, app.clone()).await;
 
     let _ = app.emit(
         "ble-status",
@@ -190,16 +193,7 @@ pub async fn ble_connect(
 #[tauri::command]
 pub async fn ble_disconnect(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let ble = state.ble_state.clone();
-
-    stop_notify(&ble).await;
-
-    {
-        let mut guard = ble.connected.lock().await;
-        if let Some(p) = guard.take() {
-            let _ = p.disconnect().await;
-        }
-    }
-    *ble.connected_info.lock() = None;
+    release_connection(&ble).await;
 
     let _ = app.emit(
         "ble-status",
@@ -211,6 +205,57 @@ pub async fn ble_disconnect(app: AppHandle, state: State<'_, AppState>) -> Resul
     );
 
     Ok(())
+}
+
+/// 停止订阅、结束断线监听并断开当前连接
+async fn release_connection(ble: &crate::ble::SharedBleState) {
+    if let Some(handle) = ble.disconnect_watch.lock().take() {
+        handle.abort();
+    }
+    stop_notify(ble).await;
+    let previous = ble.connected.lock().await.take();
+    if let Some(p) = previous {
+        let _ = p.disconnect().await;
+    }
+    *ble.connected_info.lock() = None;
+}
+
+/// 监听适配器事件：设备意外掉线时清理连接状态并通知前端，避免 UI 一直显示“已连接”
+async fn watch_disconnect(
+    ble: &crate::ble::SharedBleState,
+    adapter: &btleplug::platform::Adapter,
+    peripheral_id: btleplug::platform::PeripheralId,
+    app: AppHandle,
+) {
+    let mut events = match adapter.events().await {
+        Ok(events) => events,
+        Err(e) => {
+            log::warn!("无法订阅蓝牙适配器事件，掉线将无法自动检测: {}", e);
+            return;
+        }
+    };
+    let ble_clone = ble.clone();
+    let handle = tokio::spawn(async move {
+        while let Some(event) = events.next().await {
+            if matches!(&event, CentralEvent::DeviceDisconnected(id) if *id == peripheral_id) {
+                // 本任务就是 disconnect_watch，自己不需要 abort
+                ble_clone.disconnect_watch.lock().take();
+                stop_notify(&ble_clone).await;
+                ble_clone.connected.lock().await.take();
+                *ble_clone.connected_info.lock() = None;
+                let _ = app.emit(
+                    "ble-status",
+                    BleStatusEvent {
+                        connected: false,
+                        running: false,
+                        error: Some("BLE 设备已断开连接".to_string()),
+                    },
+                );
+                break;
+            }
+        }
+    });
+    *ble.disconnect_watch.lock() = Some(handle);
 }
 
 // ============================================================================
@@ -358,6 +403,7 @@ pub async fn ble_subscribe(char_uuid: String, app: AppHandle, state: State<'_, A
 
     let ble_clone = ble.clone();
     let app_clone = app.clone();
+    let notify_peripheral = peripheral.clone();
 
     let handle = tokio::spawn(async move {
         const BATCH_SIZE_THRESHOLD: usize = 4096;
@@ -422,13 +468,14 @@ pub async fn ble_subscribe(char_uuid: String, app: AppHandle, state: State<'_, A
         }
 
         ble_clone.set_notify_running(false);
-        let connected = ble_clone.connected_info.lock().is_some();
+        // 通知流结束可能是设备掉线：以底层真实连接状态为准，而不是缓存的连接信息
+        let connected = notify_peripheral.is_connected().await.unwrap_or(false);
         let _ = app_clone.emit(
             "ble-status",
             BleStatusEvent {
                 connected,
                 running: false,
-                error: None,
+                error: (!connected).then(|| "BLE 设备连接已断开".to_string()),
             },
         );
     });
@@ -506,21 +553,36 @@ pub async fn ble_write_string(
     with_response: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<usize, String> {
-    let text_with_ending = match line_ending.as_str() {
-        "lf" => format!("{}\n", text),
-        "crlf" => format!("{}\r\n", text),
-        "cr" => format!("{}\r", text),
-        _ => text,
-    };
-
-    let data = match encoding.to_lowercase().as_str() {
-        "utf-8" | "utf8" => text_with_ending.as_bytes().to_vec(),
-        "ascii" => text_with_ending
-            .chars()
-            .map(|c| if c.is_ascii() { c as u8 } else { b'?' })
-            .collect(),
-        _ => text_with_ending.as_bytes().to_vec(),
-    };
-
+    // 与串口共用编码逻辑（含 GBK）
+    let data = crate::commands::serial::encode_serial_text(text, &encoding, &line_ending);
     ble_write(char_uuid, data, with_response, state).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pick_write_type;
+    use btleplug::api::{CharPropFlags, WriteType};
+
+    #[test]
+    fn explicit_write_type_wins() {
+        assert_eq!(
+            pick_write_type(CharPropFlags::empty(), Some(true)).unwrap(),
+            WriteType::WithResponse
+        );
+        assert_eq!(
+            pick_write_type(CharPropFlags::WRITE, Some(false)).unwrap(),
+            WriteType::WithoutResponse
+        );
+    }
+
+    #[test]
+    fn infers_write_type_from_properties() {
+        let both = CharPropFlags::WRITE | CharPropFlags::WRITE_WITHOUT_RESPONSE;
+        assert_eq!(pick_write_type(both, None).unwrap(), WriteType::WithResponse);
+        assert_eq!(
+            pick_write_type(CharPropFlags::WRITE_WITHOUT_RESPONSE, None).unwrap(),
+            WriteType::WithoutResponse
+        );
+        assert!(pick_write_type(CharPropFlags::READ, None).is_err());
+    }
 }

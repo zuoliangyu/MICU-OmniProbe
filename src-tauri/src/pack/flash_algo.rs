@@ -338,29 +338,54 @@ fn extract_algorithm_blob(elf_file: &object::File) -> AppResult<(Vec<u8>, u64, u
 
     let (code_start, code_data) = code_section.ok_or_else(|| AppError::PackError("未找到代码段".to_string()))?;
 
-    // 构建连续的二进制 blob
+    assemble_algorithm_blob(code_start, code_data, data_section, bss_size)
+}
+
+/// Flash 算法要整体装进目标 RAM 运行，正常只有几 KB 到几十 KB；
+/// 超过上限说明 FLM 头信息异常，直接拒绝，避免巨量分配让进程 abort。
+const MAX_ALGORITHM_BLOB_SIZE: u64 = 1024 * 1024;
+
+/// 构建连续的二进制 blob（代码段 + 间隙填充 + 数据段 + BSS），返回 (blob, code_start, data_offset)
+fn assemble_algorithm_blob(
+    code_start: u64,
+    code_data: Vec<u8>,
+    data_section: Option<(u64, Vec<u8>)>,
+    bss_size: u64,
+) -> AppResult<(Vec<u8>, u64, u64)> {
+    let too_large = || {
+        AppError::PackError(format!(
+            "Flash 算法超过 {} 字节，FLM 文件可能已损坏",
+            MAX_ALGORITHM_BLOB_SIZE
+        ))
+    };
+
     let mut blob = code_data;
-    let data_offset;
-
-    if let Some((data_addr, data_bytes)) = data_section {
-        // 计算数据段相对于代码段起始的偏移
-        data_offset = data_addr.saturating_sub(code_start);
-
-        // 如果数据段不紧跟代码段，填充间隙
-        if data_offset as usize > blob.len() {
-            let padding = data_offset as usize - blob.len();
-            blob.extend(vec![0u8; padding]);
+    let (data_offset, data_bytes) = match data_section {
+        Some((data_addr, data_bytes)) => {
+            // 计算数据段相对于代码段起始的偏移
+            let offset = data_addr
+                .checked_sub(code_start)
+                .ok_or_else(|| AppError::PackError("数据段地址位于代码段之前".to_string()))?;
+            if offset < blob.len() as u64 {
+                return Err(AppError::PackError("数据段与代码段重叠".to_string()));
+            }
+            (offset, data_bytes)
         }
+        None => (blob.len() as u64, Vec::new()),
+    };
 
-        blob.extend(data_bytes);
-    } else {
-        data_offset = blob.len() as u64;
+    let total = data_offset
+        .checked_add(data_bytes.len() as u64)
+        .and_then(|v| v.checked_add(bss_size))
+        .ok_or_else(too_large)?;
+    if total > MAX_ALGORITHM_BLOB_SIZE {
+        return Err(too_large());
     }
 
-    // 添加 BSS 段的零填充
-    if bss_size > 0 {
-        blob.extend(vec![0u8; bss_size as usize]);
-    }
+    // 数据段不紧跟代码段时填充间隙，最后补 BSS 零填充
+    blob.resize(data_offset as usize, 0);
+    blob.extend(data_bytes);
+    blob.resize(total as usize, 0);
 
     Ok((blob, code_start, data_offset))
 }
@@ -630,4 +655,36 @@ fn extract_device_series(device_name: &str) -> String {
 
     // 默认：取前 8 个字符
     name.chars().take(8.min(name.len())).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assembles_code_padding_data_and_bss() {
+        let (blob, start, offset) = assemble_algorithm_blob(0x20, vec![1, 2], Some((0x24, vec![3])), 2).unwrap();
+        assert_eq!(start, 0x20);
+        assert_eq!(offset, 4);
+        assert_eq!(blob, vec![1, 2, 0, 0, 3, 0, 0]);
+    }
+
+    #[test]
+    fn without_data_section_offset_follows_code() {
+        let (blob, _, offset) = assemble_algorithm_blob(0, vec![1, 2, 3], None, 1).unwrap();
+        assert_eq!(offset, 3);
+        assert_eq!(blob, vec![1, 2, 3, 0]);
+    }
+
+    #[test]
+    fn rejects_huge_padding_and_bss() {
+        assert!(assemble_algorithm_blob(0, vec![0; 4], Some((0x2000_0000, vec![1])), 0).is_err());
+        assert!(assemble_algorithm_blob(0, vec![0; 4], None, u64::MAX).is_err());
+    }
+
+    #[test]
+    fn rejects_overlapping_or_preceding_data() {
+        assert!(assemble_algorithm_blob(0, vec![0; 8], Some((4, vec![1])), 0).is_err());
+        assert!(assemble_algorithm_blob(0x100, vec![0; 8], Some((0x10, vec![1])), 0).is_err());
+    }
 }

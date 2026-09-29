@@ -2,41 +2,61 @@ use crate::debug_symbols::DebugSymbols;
 use parking_lot::Mutex;
 use probe_rs::Session;
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
-/// RTT 运行时状态
-pub struct RttState {
-    /// 是否正在运行
-    pub running: AtomicBool,
-    /// 轮询间隔 (毫秒)
-    pub poll_interval_ms: Mutex<u64>,
-    /// RTT 控制块地址
-    pub control_block_address: Mutex<Option<u64>>,
+/// 采集循环（串口读线程、RTT 轮询）的运行代次。
+///
+/// 每次启动分配新代次，停止时代次也会前进；旧循环发现代次变化就退出，
+/// 这样快速“停止→启动”时不会出现新旧两个循环同时读同一个数据源，
+/// 旧循环退出时也无法把新循环的状态改成已停止。
+/// 低位表示是否运行，其余位是代次，放在同一个原子量里保证读写一致。
+#[derive(Default)]
+pub struct RunGeneration(AtomicU64);
+
+impl RunGeneration {
+    /// 开始新一轮运行，返回本轮代次
+    pub fn start(&self) -> u64 {
+        let previous = self
+            .0
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(((v >> 1) + 1) << 1 | 1))
+            .unwrap_or_default();
+        (previous >> 1) + 1
+    }
+
+    /// 停止当前运行（任何代次的循环都会在下一轮检查时退出）
+    pub fn stop(&self) {
+        let _ = self
+            .0
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(((v >> 1) + 1) << 1));
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.0.load(Ordering::SeqCst) & 1 == 1
+    }
+
+    /// 该代次是否仍是正在运行的那一轮
+    pub fn is_current(&self, generation: u64) -> bool {
+        self.0.load(Ordering::SeqCst) == generation << 1 | 1
+    }
+
+    /// 循环自行结束时调用：只有仍是当前代次才会标记为停止
+    pub fn finish(&self, generation: u64) -> bool {
+        self.0
+            .compare_exchange(generation << 1 | 1, generation << 1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
 }
 
-impl Default for RttState {
-    fn default() -> Self {
-        Self {
-            running: AtomicBool::new(false),
-            poll_interval_ms: Mutex::new(10),
-            control_block_address: Mutex::new(None),
-        }
-    }
+/// RTT 运行时状态
+#[derive(Default)]
+pub struct RttState {
+    pub run: RunGeneration,
 }
 
 impl RttState {
     pub fn is_running(&self) -> bool {
-        self.running.load(Ordering::SeqCst)
-    }
-
-    pub fn set_running(&self, running: bool) {
-        self.running.store(running, Ordering::SeqCst);
-    }
-
-    pub fn reset(&self) {
-        self.running.store(false, Ordering::SeqCst);
-        *self.control_block_address.lock() = None;
+        self.run.is_running()
     }
 }
 
@@ -85,14 +105,10 @@ pub trait DataSource: Send {
 
 /// Serial port runtime state
 pub struct SerialState {
-    /// Whether serial polling is running
-    pub running: AtomicBool,
-    /// Poll interval (milliseconds)
-    pub poll_interval_ms: Mutex<u64>,
+    /// 读线程运行代次
+    pub run: RunGeneration,
     /// Data source instance
     pub datasource: Mutex<Option<Box<dyn DataSource>>>,
-    /// Line buffer for incomplete lines
-    pub line_buffer: Mutex<Vec<u8>>,
     /// 文件发送期间阻止普通写入，避免协议帧与用户命令交错。
     file_transfer_active: AtomicBool,
     /// X/Y/ZMODEM 需要独占接收控制字节；原始发送仍允许普通 RX。
@@ -103,10 +119,8 @@ pub struct SerialState {
 impl Default for SerialState {
     fn default() -> Self {
         Self {
-            running: AtomicBool::new(false),
-            poll_interval_ms: Mutex::new(10),
+            run: RunGeneration::default(),
             datasource: Mutex::new(None),
-            line_buffer: Mutex::new(Vec::new()),
             file_transfer_active: AtomicBool::new(false),
             file_transfer_exclusive: AtomicBool::new(false),
             file_transfer_cancelled: AtomicBool::new(false),
@@ -116,11 +130,7 @@ impl Default for SerialState {
 
 impl SerialState {
     pub fn is_running(&self) -> bool {
-        self.running.load(Ordering::SeqCst)
-    }
-
-    pub fn set_running(&self, running: bool) {
-        self.running.store(running, Ordering::SeqCst);
+        self.run.is_running()
     }
 
     pub fn is_connected(&self) -> bool {
@@ -169,12 +179,34 @@ impl SerialState {
     pub fn get_stats(&self) -> SerialStats {
         self.datasource.lock().as_ref().map(|ds| ds.stats()).unwrap_or_default()
     }
+}
 
-    pub fn reset(&self) {
-        self.running.store(false, Ordering::SeqCst);
-        self.cancel_file_transfer();
-        *self.datasource.lock() = None;
-        self.line_buffer.lock().clear();
+#[cfg(test)]
+mod tests {
+    use super::RunGeneration;
+
+    #[test]
+    fn stale_generation_cannot_stop_new_run() {
+        let run = RunGeneration::default();
+        let first = run.start();
+        run.stop();
+        let second = run.start();
+        assert!(!run.is_current(first));
+        assert!(run.is_current(second));
+        assert!(!run.finish(first), "旧循环退出不应影响新一轮");
+        assert!(run.is_running());
+        assert!(run.finish(second));
+        assert!(!run.is_running());
+    }
+
+    #[test]
+    fn restart_without_stop_retires_previous_generation() {
+        let run = RunGeneration::default();
+        let first = run.start();
+        let second = run.start();
+        assert_ne!(first, second);
+        assert!(!run.is_current(first));
+        assert!(run.is_current(second));
     }
 }
 

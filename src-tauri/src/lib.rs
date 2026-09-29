@@ -8,6 +8,7 @@ pub mod legacy_migration;
 pub mod pack;
 pub mod serial;
 pub mod state;
+pub mod text_encoding;
 pub mod udev;
 
 use commands::{ble as ble_cmd, config, debug as debug_cmd, export, flash, probe, rtt, serial as serial_cmd};
@@ -94,6 +95,7 @@ pub fn run() {
             export::write_text_file,
             export::read_text_file,
             export::write_binary_file,
+            export::allow_image_asset,
             // 串口命令
             serial_cmd::list_serial_ports_cmd,
             serial_cmd::connect_serial,

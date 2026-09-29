@@ -296,3 +296,28 @@ impl PackManager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pack_name_rejects_path_tricks() {
+        assert!(validate_pack_name("Keil.STM32F4xx_DFP.2.17.1").is_ok());
+        for bad in ["", ".", "..", "a/b", r"a\b", "C:pack", "a\0b", "a\nb", &"x".repeat(129)] {
+            assert!(validate_pack_name(bad).is_err(), "应拒绝 {bad:?}");
+        }
+    }
+
+    #[test]
+    fn zip_entries_stay_inside_base() {
+        let base = std::env::temp_dir().join("pack-base");
+        assert_eq!(
+            safe_zip_extract_path(&base, "Flash/STM32F4xx.FLM").unwrap(),
+            base.join("Flash/STM32F4xx.FLM")
+        );
+        for bad in ["../evil.txt", "Flash/../../evil.txt", "./a", "/etc/passwd", "a\0b"] {
+            assert!(safe_zip_extract_path(&base, bad).is_err(), "应拒绝 {bad:?}");
+        }
+    }
+}

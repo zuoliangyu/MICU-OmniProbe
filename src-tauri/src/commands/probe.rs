@@ -1,12 +1,15 @@
 use crate::commands::config::TARGET_REGISTRY;
+use crate::commands::{blocking, SharedSession};
 use crate::error::{AppError, AppResult};
 use crate::state::{AppState, ConnectMode, ConnectionInfo, InterfaceType};
 use probe_rs::{
     architecture::arm::dp::{DpAddress, DpRegisterAddress},
+    config::Registry,
     probe::{list::Lister, WireProtocol},
     MemoryInterface, Permissions, Session,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tauri::State;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -229,6 +232,10 @@ fn read_dp_idcode(session: &mut Session) -> Option<u32> {
 
 #[tauri::command]
 pub async fn list_probes() -> AppResult<Vec<ProbeInfo>> {
+    blocking(|| Ok(enumerate_probes())).await
+}
+
+fn enumerate_probes() -> Vec<ProbeInfo> {
     // 使用 nusb 收集 CMSIS-DAP 能力信息
     let caps = collect_cmsis_dap_caps();
     log::info!("=== CMSIS-DAP Capabilities from nusb ===");
@@ -244,111 +251,67 @@ pub async fn list_probes() -> AppResult<Vec<ProbeInfo>> {
     }
 
     // probe-rs 枚举
-    let lister = Lister::new();
-    let probes = lister.list_all();
-
+    let probes = Lister::new().list_all();
     log::info!("=== Probe enumeration (probe-rs) ===");
     log::info!("Total probes found: {}", probes.len());
 
-    let mut probe_infos: Vec<ProbeInfo> = Vec::new();
+    let probe_infos: Vec<ProbeInfo> = probes
+        .iter()
+        .map(|p| {
+            let probe_type_str = format!("{:?}", p.probe_type());
+            log::info!(
+                "Probe: identifier={}, VID={:#06x}, PID={:#06x}, serial={:?}, type={}",
+                p.identifier,
+                p.vendor_id,
+                p.product_id,
+                p.serial_number,
+                probe_type_str
+            );
 
-    for p in probes {
-        let probe_type_str = format!("{:?}", p.probe_type());
-
-        log::info!(
-            "Probe: identifier={}, VID={:#06x}, PID={:#06x}, serial={:?}, type={}",
-            p.identifier,
-            p.vendor_id,
-            p.product_id,
-            p.serial_number,
-            probe_type_str
-        );
-
-        // 使用 nusb 能力信息来判断 DAP 版本
-        let matched_caps = match_caps_for_probe(&p, &caps);
-
-        if let Some(cap) = matched_caps {
-            log::info!("  -> Matched caps: has_hid={}, has_v2={}", cap.has_hid, cap.has_v2);
-
-            // 如果设备同时支持 HID 和 WinUSB，合并为一个条目（probe-rs 自动选择最优协议）
-            if cap.has_hid && cap.has_v2 {
-                probe_infos.push(ProbeInfo {
-                    probe_id: build_probe_id(p.vendor_id, p.product_id, &p.serial_number),
-                    identifier: p.identifier.clone(),
-                    vendor_id: p.vendor_id,
-                    product_id: p.product_id,
-                    serial_number: p.serial_number.clone(),
-                    probe_type: "CmsisDap".to_string(),
-                    dap_version: Some("DAPv1+v2 (HID/WinUSB)".to_string()),
-                    debug_info: Some(cap.debug_info.clone()),
-                });
-            } else if cap.has_v2 {
-                probe_infos.push(ProbeInfo {
-                    probe_id: build_probe_id(p.vendor_id, p.product_id, &p.serial_number),
-                    identifier: p.identifier.clone(),
-                    vendor_id: p.vendor_id,
-                    product_id: p.product_id,
-                    serial_number: p.serial_number.clone(),
-                    probe_type: "CmsisDapV2".to_string(),
-                    dap_version: Some("DAPv2 (WinUSB)".to_string()),
-                    debug_info: Some(cap.debug_info.clone()),
-                });
-            } else if cap.has_hid {
-                probe_infos.push(ProbeInfo {
-                    probe_id: build_probe_id(p.vendor_id, p.product_id, &p.serial_number),
-                    identifier: p.identifier.clone(),
-                    vendor_id: p.vendor_id,
-                    product_id: p.product_id,
-                    serial_number: p.serial_number.clone(),
-                    probe_type: "CmsisDap".to_string(),
-                    dap_version: Some("DAPv1 (HID)".to_string()),
-                    debug_info: Some(cap.debug_info.clone()),
-                });
-            } else {
-                // 未知类型，直接添加
-                probe_infos.push(ProbeInfo {
-                    probe_id: build_probe_id(p.vendor_id, p.product_id, &p.serial_number),
-                    identifier: p.identifier.clone(),
-                    vendor_id: p.vendor_id,
-                    product_id: p.product_id,
-                    serial_number: p.serial_number.clone(),
-                    probe_type: probe_type_str,
-                    dap_version: None,
-                    debug_info: Some(cap.debug_info.clone()),
-                });
-            }
-        } else {
-            // 未匹配到 nusb 能力信息，使用 probe_type 判断
-            let probe_type_upper = probe_type_str.to_uppercase();
-            let dap_version = if probe_type_upper.contains("CMSIS") || probe_type_upper.contains("DAP") {
-                if probe_type_upper.contains("V2") {
-                    Some("DAPv2 (WinUSB)".to_string())
-                } else {
-                    Some("DAPv1 (HID)".to_string())
+            // 优先用 nusb 能力信息判断 DAP 版本，未匹配时退回 probe_type 名称
+            let (probe_type, dap_version, debug_info) = match match_caps_for_probe(p, &caps) {
+                Some(cap) => {
+                    log::info!("  -> Matched caps: has_hid={}, has_v2={}", cap.has_hid, cap.has_v2);
+                    // 同时支持 HID 和 WinUSB 时合并为一个条目（probe-rs 自动选择最优协议）
+                    let (probe_type, dap_version) = match (cap.has_hid, cap.has_v2) {
+                        (true, true) => ("CmsisDap".to_string(), Some("DAPv1+v2 (HID/WinUSB)")),
+                        (false, true) => ("CmsisDapV2".to_string(), Some("DAPv2 (WinUSB)")),
+                        (true, false) => ("CmsisDap".to_string(), Some("DAPv1 (HID)")),
+                        (false, false) => (probe_type_str, None),
+                    };
+                    (probe_type, dap_version, Some(cap.debug_info.clone()))
                 }
-            } else {
-                None
+                None => {
+                    let upper = probe_type_str.to_uppercase();
+                    let dap_version = if !(upper.contains("CMSIS") || upper.contains("DAP")) {
+                        None
+                    } else if upper.contains("V2") {
+                        Some("DAPv2 (WinUSB)")
+                    } else {
+                        Some("DAPv1 (HID)")
+                    };
+                    (probe_type_str, dap_version, None)
+                }
             };
 
-            probe_infos.push(ProbeInfo {
+            ProbeInfo {
                 probe_id: build_probe_id(p.vendor_id, p.product_id, &p.serial_number),
                 identifier: p.identifier.clone(),
                 vendor_id: p.vendor_id,
                 product_id: p.product_id,
                 serial_number: p.serial_number.clone(),
-                probe_type: probe_type_str,
-                dap_version,
-                debug_info: None,
-            });
-        }
-    }
+                probe_type,
+                dap_version: dap_version.map(str::to_string),
+                debug_info,
+            }
+        })
+        .collect();
 
     log::info!("=== Probe enumeration end, total {} entries ===", probe_infos.len());
-
-    Ok(probe_infos)
+    probe_infos
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ConnectOptions {
     pub probe_identifier: String,
     pub target: String,
@@ -357,24 +320,26 @@ pub struct ConnectOptions {
     pub connect_mode: ConnectMode,
 }
 
-#[tauri::command]
-pub async fn connect_target(options: ConnectOptions, state: State<'_, AppState>) -> AppResult<TargetInfo> {
-    log::info!("=== 开始连接目标 ===");
-    log::info!("探针标识: {}", options.probe_identifier);
-    log::info!("目标芯片: {}", options.target);
-    log::info!("接口类型: {:?}", options.interface_type);
-    log::info!("时钟速度: {:?} Hz", options.clock_speed);
-    log::info!("连接模式: {:?}", options.connect_mode);
+/// 一次成功连接的结果
+pub(crate) struct OpenedSession {
+    pub session: Session,
+    pub target_info: TargetInfo,
+    pub connection_info: ConnectionInfo,
+}
 
-    // 关闭现有连接
-    {
-        let mut session_guard = state.session.lock();
-        *session_guard = None;
-    }
+/// 打开探针并 attach 到目标芯片（烧录、RTT、调试三种独立连接共用）。
+/// 同步阻塞，调用方需放在阻塞线程里执行。
+pub(crate) fn open_session(options: &ConnectOptions) -> AppResult<OpenedSession> {
+    log::info!(
+        "连接目标: 探针={} 芯片={} 接口={:?} 时钟={:?}Hz 模式={:?}",
+        options.probe_identifier,
+        options.target,
+        options.interface_type,
+        options.clock_speed,
+        options.connect_mode
+    );
 
-    let lister = Lister::new();
-    let probes = lister.list_all();
-
+    let probes = Lister::new().list_all();
     let probe_info = probes
         .iter()
         .find(|p| p.identifier == options.probe_identifier)
@@ -383,26 +348,19 @@ pub async fn connect_target(options: ConnectOptions, state: State<'_, AppState>)
             AppError::ProbeError("未找到指定的探针".to_string())
         })?;
 
-    log::info!("找到探针: {:?}", probe_info.identifier);
-
     let mut probe = probe_info.open().map_err(|e| {
         log::error!("打开探针失败: {}", e);
-        AppError::ProbeError(e.to_string())
+        AppError::ProbeError(format!("打开探针失败: {}", e))
     })?;
 
-    log::info!("探针已打开");
-
-    // 设置协议
     let protocol = match options.interface_type {
         InterfaceType::Swd => WireProtocol::Swd,
         InterfaceType::Jtag => WireProtocol::Jtag,
     };
     probe.select_protocol(protocol).map_err(|e| {
         log::error!("设置协议失败 ({:?}): {}", protocol, e);
-        AppError::ProbeError(e.to_string())
+        AppError::ProbeError(format!("设置协议失败: {}", e))
     })?;
-
-    log::info!("协议已设置: {:?}", protocol);
 
     // 设置时钟速度（前端传递的是Hz，probe-rs需要kHz）
     if let Some(speed_hz) = options.clock_speed {
@@ -411,158 +369,144 @@ pub async fn connect_target(options: ConnectOptions, state: State<'_, AppState>)
             log::error!("设置时钟速度失败 ({} kHz): {}", speed_khz, e);
             AppError::ProbeError(format!("设置时钟速度失败 ({} kHz): {}", speed_khz, e))
         })?;
-        log::info!("时钟速度已设置: {} kHz", speed_khz);
     }
 
-    // 连接目标
-    log::info!("正在连接目标芯片: {}", options.target);
-
-    // 获取自定义 Registry（包含从 Pack 导入的设备）
-    let registry = TARGET_REGISTRY.lock();
-
-    let mut session = if options.connect_mode == ConnectMode::UnderReset {
-        log::info!("使用 UnderReset 模式连接");
-        probe
-            .attach_under_reset_with_registry(&options.target, Permissions::default(), &registry)
-            .map_err(|e| {
-                log::error!("连接目标失败 (UnderReset): {}", e);
-                log::error!("可能的原因:");
-                log::error!("  1. 芯片型号 '{}' 不在 probe-rs 支持列表中", options.target);
-                log::error!("  2. 需要导入对应的 CMSIS-Pack 文件");
-                log::error!("  3. 芯片连接有问题（检查电源、接线）");
-                AppError::ProbeError(format!(
-                    "无法连接到芯片 '{}': {}。请检查: 1) 芯片型号是否正确 2) 是否已导入对应的Pack文件 3) 硬件连接是否正常",
-                    options.target, e
-                ))
-            })?
-    } else {
-        log::info!("使用 Normal 模式连接");
-        probe
-            .attach_with_registry(&options.target, Permissions::default(), &registry)
-            .map_err(|e| {
-                log::error!("连接目标失败 (Normal): {}", e);
-                log::error!("可能的原因:");
-                log::error!("  1. 芯片型号 '{}' 不在 probe-rs 支持列表中", options.target);
-                log::error!("  2. 需要导入对应的 CMSIS-Pack 文件");
-                log::error!("  3. 芯片连接有问题（检查电源、接线）");
-                AppError::ProbeError(format!(
-                    "无法连接到芯片 '{}': {}。请检查: 1) 芯片型号是否正确 2) 是否已导入对应的Pack文件 3) 硬件连接是否正常",
-                    options.target, e
-                ))
-            })?
+    let connect_error = |e: &dyn std::fmt::Display| {
+        log::error!("连接目标失败 ({:?}): {}", options.connect_mode, e);
+        AppError::ProbeError(format!(
+            "无法连接到芯片 '{}': {}。请检查: 1) 芯片型号是否正确 2) 是否已导入对应的Pack文件 3) 硬件连接是否正常",
+            options.target, e
+        ))
     };
 
-    // 释放 registry 锁
-    drop(registry);
+    // 自定义 Registry 包含从 Pack 导入的设备；只在查找时持锁，attach 可能耗时数秒，
+    // 期间不能挡住芯片搜索、Pack 导入等命令。
+    let target = TARGET_REGISTRY
+        .lock()
+        .get_target_by_name(&options.target)
+        .map_err(|e| connect_error(&e))?;
+
+    let empty_registry = Registry::new();
+    let mut session = if options.connect_mode == ConnectMode::UnderReset {
+        probe.attach_under_reset_with_registry(target, Permissions::default(), &empty_registry)
+    } else {
+        probe.attach_with_registry(target, Permissions::default(), &empty_registry)
+    }
+    .map_err(|e| connect_error(&e))?;
 
     log::info!("✓ 成功连接到目标芯片");
 
-    // 读取芯片ID（DBGMCU_IDCODE）
+    // 读取芯片ID（DBGMCU_IDCODE）与调试端口ID（DPIDR）
     let chip_id = read_chip_id(&mut session);
-    if let Some(id) = chip_id {
-        log::info!("芯片ID (DBGMCU_IDCODE): 0x{:08X}", id);
-    } else {
-        log::warn!("无法读取芯片ID");
-    }
-
-    // 读取 DP IDCODE (DPIDR) - 调试端口标识码
     let target_idcode = read_dp_idcode(&mut session);
-    if let Some(id) = target_idcode {
-        log::info!("调试端口ID (DPIDR): 0x{:08X}", id);
-    } else {
-        log::warn!("无法读取调试端口ID");
-    }
+    log::info!("芯片ID: {:08X?}，调试端口ID: {:08X?}", chip_id, target_idcode);
 
-    // 获取目标信息
-    let target = session.target();
-    log::info!("目标芯片名称: {}", target.name);
-    log::info!("核心类型: {:?}", target.cores.first().map(|c| c.core_type));
-    log::info!("内存区域数量: {}", target.memory_map.len());
-    log::info!("Flash算法数量: {}", target.flash_algorithms.len());
-
-    let target_info = TargetInfo {
-        name: target.name.clone(),
-        core_type: format!("{:?}", target.cores.first().map(|c| c.core_type)),
-        memory_regions: target
-            .memory_map
-            .iter()
-            .map(|region| {
-                let (name, kind, address, size) = match region {
-                    probe_rs::config::MemoryRegion::Ram(r) => (
-                        r.name.clone().unwrap_or_default(),
-                        "RAM",
-                        r.range.start,
-                        r.range.end - r.range.start,
-                    ),
-                    probe_rs::config::MemoryRegion::Nvm(r) => (
-                        r.name.clone().unwrap_or_default(),
-                        "Flash",
-                        r.range.start,
-                        r.range.end - r.range.start,
-                    ),
-                    probe_rs::config::MemoryRegion::Generic(r) => (
-                        r.name.clone().unwrap_or_default(),
-                        "Generic",
-                        r.range.start,
-                        r.range.end - r.range.start,
-                    ),
-                };
-                MemoryRegion {
-                    name,
-                    kind: kind.to_string(),
-                    address,
-                    size,
-                }
-            })
-            .collect(),
-        flash_algorithms: target.flash_algorithms.iter().map(|a| a.name.clone()).collect(),
+    let target_info = build_target_info(&session, chip_id);
+    let connection_info = ConnectionInfo {
+        probe_name: options.probe_identifier.clone(),
+        probe_serial: probe_info.serial_number.clone(),
+        target_name: options.target.clone(),
+        core_type: target_info.core_type.clone(),
         chip_id,
+        target_idcode,
     };
 
-    // 存储连接信息
-    {
-        let mut conn_info = state.connection_info.lock();
-        *conn_info = Some(ConnectionInfo {
-            probe_name: options.probe_identifier.clone(),
-            probe_serial: probe_info.serial_number.clone(), // 保存探针序列号
-            target_name: options.target.clone(),
-            core_type: target_info.core_type.clone(),
-            chip_id,
-            target_idcode, // 保存目标IDCODE
-        });
-    }
+    Ok(OpenedSession {
+        session,
+        target_info,
+        connection_info,
+    })
+}
 
-    // 存储session
-    {
-        let mut session_guard = state.session.lock();
-        *session_guard = Some(session);
-    }
+fn build_target_info(session: &Session, chip_id: Option<u32>) -> TargetInfo {
+    let target = session.target();
+    let memory_regions = target
+        .memory_map
+        .iter()
+        .map(|region| {
+            let (name, kind, range) = match region {
+                probe_rs::config::MemoryRegion::Ram(r) => (&r.name, "RAM", &r.range),
+                probe_rs::config::MemoryRegion::Nvm(r) => (&r.name, "Flash", &r.range),
+                probe_rs::config::MemoryRegion::Generic(r) => (&r.name, "Generic", &r.range),
+            };
+            MemoryRegion {
+                name: name.clone().unwrap_or_default(),
+                kind: kind.to_string(),
+                address: range.start,
+                size: range.end - range.start,
+            }
+        })
+        .collect();
 
+    TargetInfo {
+        name: target.name.clone(),
+        core_type: format!("{:?}", target.cores.first().map(|c| c.core_type)),
+        memory_regions,
+        flash_algorithms: target.flash_algorithms.iter().map(|a| a.name.clone()).collect(),
+        chip_id,
+    }
+}
+
+/// 替换某个连接槽位：先关闭旧连接（连接信息一并清空），再建立新连接
+async fn reconnect_slot(
+    slot: &SharedSession,
+    info_slot: &Arc<parking_lot::Mutex<Option<ConnectionInfo>>>,
+    options: ConnectOptions,
+) -> AppResult<TargetInfo> {
+    let slot = Arc::clone(slot);
+    let info_slot = Arc::clone(info_slot);
+    blocking(move || {
+        *info_slot.lock() = None;
+        drop(slot.lock().take());
+        let opened = open_session(&options)?;
+        *slot.lock() = Some(opened.session);
+        *info_slot.lock() = Some(opened.connection_info);
+        Ok(opened.target_info)
+    })
+    .await
+}
+
+/// 断开连接槽位：让芯片继续运行（不复位，避免触发 probe-rs 的 bug），再释放 session
+async fn release_slot(
+    slot: &SharedSession,
+    info_slot: &Arc<parking_lot::Mutex<Option<ConnectionInfo>>>,
+) -> AppResult<()> {
+    let slot = Arc::clone(slot);
+    let info_slot = Arc::clone(info_slot);
+    blocking(move || {
+        let previous = slot.lock().take();
+        if let Some(mut session) = previous {
+            if let Ok(mut core) = session.core(0) {
+                let _ = core.run();
+            }
+        }
+        *info_slot.lock() = None;
+        Ok(())
+    })
+    .await
+}
+
+/// 查询连接状态不能阻塞等 session 锁：烧录期间锁会被持有数分钟，
+/// 前端轮询状态时拿不到锁就以连接信息为准（连接期间一直存在）。
+fn slot_status(slot: &SharedSession, info_slot: &parking_lot::Mutex<Option<ConnectionInfo>>) -> ConnectionStatus {
+    let info = info_slot.lock().clone();
+    let connected = match slot.try_lock() {
+        Some(guard) => guard.is_some(),
+        None => info.is_some(),
+    };
+    ConnectionStatus { connected, info }
+}
+
+#[tauri::command]
+pub async fn connect_target(options: ConnectOptions, state: State<'_, AppState>) -> AppResult<TargetInfo> {
+    let target_info = reconnect_slot(&state.session, &state.connection_info, options).await?;
     log::info!("=== 连接完成 ===");
-
     Ok(target_info)
 }
 
 #[tauri::command]
 pub async fn disconnect(state: State<'_, AppState>) -> AppResult<()> {
-    // 简单地释放session，让probe-rs自动处理清理
-    {
-        let mut session_guard = state.session.lock();
-        if let Some(session) = session_guard.as_mut() {
-            // 尝试让芯片恢复运行（不做复位操作，避免触发probe-rs的bug）
-            if let Ok(mut core) = session.core(0) {
-                let _ = core.run();
-            }
-        }
-        // 释放session，这会自动关闭探针
-        *session_guard = None;
-    }
-
-    // 清除连接信息
-    let mut conn_info = state.connection_info.lock();
-    *conn_info = None;
-
-    Ok(())
+    release_slot(&state.session, &state.connection_info).await
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -573,178 +517,31 @@ pub struct ConnectionStatus {
 
 #[tauri::command]
 pub async fn get_connection_status(state: State<'_, AppState>) -> AppResult<ConnectionStatus> {
-    let session_guard = state.session.lock();
-    let connected = session_guard.is_some();
-
-    let conn_info = state.connection_info.lock();
-
-    Ok(ConnectionStatus {
-        connected,
-        info: conn_info.clone(),
-    })
+    Ok(slot_status(&state.session, &state.connection_info))
 }
 
 // ==================== RTT 独立连接命令 ====================
 
 #[tauri::command]
 pub async fn connect_rtt(options: ConnectOptions, state: State<'_, AppState>) -> AppResult<TargetInfo> {
-    // 关闭现有 RTT 连接
-    {
-        let mut rtt_session_guard = state.rtt_session.lock();
-        *rtt_session_guard = None;
-    }
-
-    let lister = Lister::new();
-    let probes = lister.list_all();
-
-    let probe_info = probes
-        .iter()
-        .find(|p| p.identifier == options.probe_identifier)
-        .ok_or_else(|| AppError::ProbeError("未找到指定的探针".to_string()))?;
-
-    let mut probe = probe_info.open().map_err(|e| AppError::ProbeError(e.to_string()))?;
-
-    // 设置协议
-    let protocol = match options.interface_type {
-        InterfaceType::Swd => WireProtocol::Swd,
-        InterfaceType::Jtag => WireProtocol::Jtag,
-    };
-    probe
-        .select_protocol(protocol)
-        .map_err(|e| AppError::ProbeError(e.to_string()))?;
-
-    // 设置时钟速度（前端传递的是Hz，probe-rs需要kHz）
-    if let Some(speed_hz) = options.clock_speed {
-        let speed_khz = speed_hz / 1000;
-        probe
-            .set_speed(speed_khz)
-            .map_err(|e| AppError::ProbeError(format!("设置时钟速度失败 ({} kHz): {}", speed_khz, e)))?;
-    }
-
-    // 连接目标
-    // 获取自定义 Registry（包含从 Pack 导入的设备）
-    let registry = TARGET_REGISTRY.lock();
-
-    let mut session = if options.connect_mode == ConnectMode::UnderReset {
-        probe
-            .attach_under_reset_with_registry(&options.target, Permissions::default(), &registry)
-            .map_err(|e| AppError::ProbeError(e.to_string()))?
-    } else {
-        probe
-            .attach_with_registry(&options.target, Permissions::default(), &registry)
-            .map_err(|e| AppError::ProbeError(e.to_string()))?
-    };
-
-    // 释放 registry 锁
-    drop(registry);
-
-    // 读取芯片ID
-    let chip_id = read_chip_id(&mut session);
-
-    // 读取 DP IDCODE (DPIDR) - 调试端口标识码
-    let target_idcode = read_dp_idcode(&mut session);
-
-    // 获取目标信息
-    let target = session.target();
-    let target_info = TargetInfo {
-        name: target.name.clone(),
-        core_type: format!("{:?}", target.cores.first().map(|c| c.core_type)),
-        memory_regions: target
-            .memory_map
-            .iter()
-            .map(|region| {
-                let (name, kind, address, size) = match region {
-                    probe_rs::config::MemoryRegion::Ram(r) => (
-                        r.name.clone().unwrap_or_default(),
-                        "RAM",
-                        r.range.start,
-                        r.range.end - r.range.start,
-                    ),
-                    probe_rs::config::MemoryRegion::Nvm(r) => (
-                        r.name.clone().unwrap_or_default(),
-                        "Flash",
-                        r.range.start,
-                        r.range.end - r.range.start,
-                    ),
-                    probe_rs::config::MemoryRegion::Generic(r) => (
-                        r.name.clone().unwrap_or_default(),
-                        "Generic",
-                        r.range.start,
-                        r.range.end - r.range.start,
-                    ),
-                };
-                MemoryRegion {
-                    name,
-                    kind: kind.to_string(),
-                    address,
-                    size,
-                }
-            })
-            .collect(),
-        flash_algorithms: target.flash_algorithms.iter().map(|a| a.name.clone()).collect(),
-        chip_id,
-    };
-
-    // 存储 RTT 连接信息
-    {
-        let mut rtt_conn_info = state.rtt_connection_info.lock();
-        *rtt_conn_info = Some(ConnectionInfo {
-            probe_name: options.probe_identifier.clone(),
-            probe_serial: probe_info.serial_number.clone(),
-            target_name: options.target.clone(),
-            core_type: target_info.core_type.clone(),
-            chip_id,
-            target_idcode,
-        });
-    }
-
-    // 存储 RTT session
-    {
-        let mut rtt_session_guard = state.rtt_session.lock();
-        *rtt_session_guard = Some(session);
-    }
-
-    Ok(target_info)
+    // 换连接前先让正在运行的 RTT 轮询退出
+    state.rtt_state.run.stop();
+    reconnect_slot(&state.rtt_session, &state.rtt_connection_info, options).await
 }
 
 #[tauri::command]
 pub async fn disconnect_rtt(state: State<'_, AppState>) -> AppResult<()> {
-    // 停止 RTT
-    state.rtt_state.set_running(false);
-
-    // 释放 RTT session
-    {
-        let mut rtt_session_guard = state.rtt_session.lock();
-        if let Some(session) = rtt_session_guard.as_mut() {
-            if let Ok(mut core) = session.core(0) {
-                let _ = core.run();
-            }
-        }
-        *rtt_session_guard = None;
-    }
-
-    // 清除 RTT 连接信息
-    let mut rtt_conn_info = state.rtt_connection_info.lock();
-    *rtt_conn_info = None;
-
-    Ok(())
+    state.rtt_state.run.stop();
+    release_slot(&state.rtt_session, &state.rtt_connection_info).await
 }
 
 #[tauri::command]
 pub async fn get_rtt_connection_status(state: State<'_, AppState>) -> AppResult<ConnectionStatus> {
-    let rtt_session_guard = state.rtt_session.lock();
-    let connected = rtt_session_guard.is_some();
-
-    let rtt_conn_info = state.rtt_connection_info.lock();
-
-    Ok(ConnectionStatus {
-        connected,
-        info: rtt_conn_info.clone(),
-    })
+    Ok(slot_status(&state.rtt_session, &state.rtt_connection_info))
 }
 
-/// 诊断命令：列出所有 USB 设备（特别是 CMSIS-DAP 相关的）
-async fn diagnose_usb_devices() -> AppResult<Vec<UsbDeviceInfo>> {
+// 诊断命令：列出所有 USB 设备（特别是 CMSIS-DAP 相关的）
+fn diagnose_usb_devices() -> AppResult<Vec<UsbDeviceInfo>> {
     log::info!("=== USB Device Diagnosis Start ===");
 
     let mut devices = Vec::new();
@@ -840,6 +637,10 @@ pub struct UsbPermissionStatus {
 /// 检查 USB 权限状态
 #[tauri::command]
 pub async fn check_usb_permissions() -> AppResult<UsbPermissionStatus> {
+    blocking(check_usb_permissions_blocking).await
+}
+
+fn check_usb_permissions_blocking() -> AppResult<UsbPermissionStatus> {
     log::info!("=== USB Permission Check Start ===");
 
     let mut status = UsbPermissionStatus {
@@ -850,7 +651,7 @@ pub async fn check_usb_permissions() -> AppResult<UsbPermissionStatus> {
     };
 
     // 检测 CMSIS-DAP 设备
-    let devices = diagnose_usb_devices().await?;
+    let devices = diagnose_usb_devices()?;
     status.detected_dap_devices = devices.clone();
 
     if devices.is_empty() {

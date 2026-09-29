@@ -89,6 +89,8 @@ pub struct BleState {
     pub connected_info: PlMutex<Option<BleDeviceInfo>>,
     /// 是否正在扫描
     pub scanning: AtomicBool,
+    /// 提前结束当前扫描（`ble_stop_scan` 触发）
+    pub scan_cancel: tokio::sync::Notify,
     /// 是否正在订阅 notify
     pub notify_running: AtomicBool,
     /// 收发统计
@@ -97,6 +99,8 @@ pub struct BleState {
     pub notify_task: PlMutex<Option<tokio::task::JoinHandle<()>>>,
     /// 当前订阅的特征值 UUID
     pub subscribed_char: PlMutex<Option<Uuid>>,
+    /// 监听适配器断线事件的后台任务句柄
+    pub disconnect_watch: PlMutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl Default for BleState {
@@ -108,10 +112,12 @@ impl Default for BleState {
             connected: AsyncMutex::new(None),
             connected_info: PlMutex::new(None),
             scanning: AtomicBool::new(false),
+            scan_cancel: tokio::sync::Notify::new(),
             notify_running: AtomicBool::new(false),
             stats: PlMutex::new(BleStats::default()),
             notify_task: PlMutex::new(None),
             subscribed_char: PlMutex::new(None),
+            disconnect_watch: PlMutex::new(None),
         }
     }
 }
@@ -119,6 +125,13 @@ impl Default for BleState {
 impl BleState {
     pub fn is_scanning(&self) -> bool {
         self.scanning.load(Ordering::SeqCst)
+    }
+
+    /// 原子地进入扫描状态；已在扫描中返回 false
+    pub fn try_begin_scan(&self) -> bool {
+        self.scanning
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
     }
 
     pub fn set_scanning(&self, value: bool) {

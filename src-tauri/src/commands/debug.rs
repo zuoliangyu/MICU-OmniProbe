@@ -3,27 +3,24 @@
 //! 调试会话使用独立的 `debug_session`（与烧录主连接和 RTT 连接互不影响）。
 //! 提供 attach/detach、执行控制、内存与寄存器读取、断点和源码定位。
 
-use crate::commands::config::TARGET_REGISTRY;
+use crate::commands::probe::{open_session, ConnectOptions, OpenedSession};
+use crate::commands::{blocking, with_session};
 use crate::debug_symbols::{DebugSymbols, ElfSymbol};
 use crate::error::{AppError, AppResult};
-use crate::state::{AppState, ConnectMode, ConnectionInfo, DebugBreakpointEntry, InterfaceType};
-use probe_rs::{
-    probe::{list::Lister, WireProtocol},
-    MemoryInterface, Permissions,
-};
+use crate::state::{AppState, ConnectionInfo, DebugBreakpointEntry};
+use probe_rs::{Core, MemoryInterface};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
+use tauri::ipc::Response;
 use tauri::State;
 
 const HALT_TIMEOUT: Duration = Duration::from_millis(1000);
 
 #[derive(Debug, Deserialize)]
 pub struct DebugAttachOptions {
-    pub probe_identifier: String,
-    pub target: String,
-    pub interface_type: InterfaceType,
-    pub clock_speed: Option<u32>,
-    pub connect_mode: ConnectMode,
+    #[serde(flatten)]
+    pub connect: ConnectOptions,
     /// attach 后是否立即 halt（默认 true，符合调试场景预期）
     #[serde(default = "default_halt_after_attach")]
     pub halt_after_attach: bool,
@@ -97,95 +94,106 @@ pub struct DebugReadSourceResult {
 // Attach / Detach
 // ============================================================================
 
-#[tauri::command]
-pub async fn debug_attach(options: DebugAttachOptions, state: State<'_, AppState>) -> AppResult<DebugStatus> {
-    log::info!("=== Debug attach ===");
-    log::info!("探针: {} / 目标: {}", options.probe_identifier, options.target);
-
-    // 关闭已有调试连接
-    {
-        let mut guard = state.debug_session.lock();
-        *guard = None;
-    }
-
-    let lister = Lister::new();
-    let probes = lister.list_all();
-
-    let probe_info = probes
-        .iter()
-        .find(|p| p.identifier == options.probe_identifier)
-        .ok_or_else(|| AppError::ProbeError("未找到指定的探针".to_string()))?;
-
-    let mut probe = probe_info
-        .open()
-        .map_err(|e| AppError::ProbeError(format!("打开探针失败: {}", e)))?;
-
-    let protocol = match options.interface_type {
-        InterfaceType::Swd => WireProtocol::Swd,
-        InterfaceType::Jtag => WireProtocol::Jtag,
-    };
-    probe
-        .select_protocol(protocol)
-        .map_err(|e| AppError::ProbeError(format!("设置协议失败: {}", e)))?;
-
-    if let Some(speed_hz) = options.clock_speed {
-        let speed_khz = speed_hz / 1000;
-        probe
-            .set_speed(speed_khz)
-            .map_err(|e| AppError::ProbeError(format!("设置时钟速度失败 ({} kHz): {}", speed_khz, e)))?;
-    }
-
-    let registry = TARGET_REGISTRY.lock();
-    let mut session = if options.connect_mode == ConnectMode::UnderReset {
-        probe
-            .attach_under_reset_with_registry(&options.target, Permissions::default(), &registry)
-            .map_err(|e| AppError::ProbeError(format!("attach (UnderReset) 失败: {}", e)))?
-    } else {
-        probe
-            .attach_with_registry(&options.target, Permissions::default(), &registry)
-            .map_err(|e| AppError::ProbeError(format!("attach 失败: {}", e)))?
-    };
-    drop(registry);
-
-    // 取得目标信息（仅用于 ConnectionInfo）
-    let target = session.target();
-    let core_type = format!("{:?}", target.cores.first().map(|c| c.core_type));
-
-    let core_state = if options.halt_after_attach {
+/// 在阻塞线程里取出调试连接的 core 0 执行操作
+async fn with_core<T: Send + 'static>(
+    state: &AppState,
+    task: impl FnOnce(&mut Core<'_>) -> AppResult<T> + Send + 'static,
+) -> AppResult<T> {
+    with_session(&state.debug_session, move |session| {
         let mut core = session
             .core(0)
             .map_err(|e| AppError::DebugError(format!("获取核心失败: {}", e)))?;
-        let info = core
-            .halt(HALT_TIMEOUT)
+        task(&mut core)
+    })
+    .await
+}
+
+fn read_pc(core: &mut Core<'_>) -> AppResult<u64> {
+    let pc_reg = core
+        .registers()
+        .pc()
+        .ok_or_else(|| AppError::DebugError("当前架构无 PC 寄存器".to_string()))?;
+    core.read_core_reg(pc_reg)
+        .map_err(|e| AppError::DebugError(format!("读 PC 失败: {}", e)))
+}
+
+fn read_lr(core: &mut Core<'_>) -> Option<u64> {
+    let lr_reg = core
+        .registers()
+        .core_registers()
+        .find(|r| r.name().eq_ignore_ascii_case("LR"))?;
+    core.read_core_reg(lr_reg).ok()
+}
+
+fn halted_at(pc: u64) -> DebugCoreState {
+    DebugCoreState {
+        state: "halted".into(),
+        pc: Some(pc),
+    }
+}
+
+/// 在 `address` 下临时硬断点并运行，直到命中或超时后清除断点。
+/// 超时说明目标没有按预期返回：主动 halt，返回实际停下的位置，
+/// 保证前端看到的“已暂停”和芯片真实状态一致。
+fn run_to_address(core: &mut Core<'_>, address: u64, timeout: Duration) -> AppResult<u64> {
+    core.set_hw_breakpoint(address)
+        .map_err(|e| AppError::DebugError(format!("设置临时断点失败: {}", e)))?;
+
+    let run_result = core
+        .run()
+        .map_err(|e| AppError::DebugError(format!("run 失败: {}", e)))
+        .map(|_| core.wait_for_core_halted(timeout));
+
+    // 清掉临时断点不论成功失败
+    let _ = core.clear_hw_breakpoint(address);
+
+    if let Err(error) = run_result? {
+        log::warn!("等待临时断点 0x{:08X} 命中超时: {}，已强制暂停", address, error);
+        core.halt(HALT_TIMEOUT)
             .map_err(|e| AppError::DebugError(format!("halt 失败: {}", e)))?;
-        DebugCoreState {
-            state: "halted".to_string(),
-            pc: Some(info.pc),
-        }
-    } else {
-        DebugCoreState {
-            state: "running".to_string(),
-            pc: None,
-        }
-    };
-
-    let info = ConnectionInfo {
-        probe_name: options.probe_identifier.clone(),
-        probe_serial: probe_info.serial_number.clone(),
-        target_name: options.target.clone(),
-        core_type,
-        chip_id: None,
-        target_idcode: None,
-    };
-
-    {
-        let mut conn = state.debug_connection_info.lock();
-        *conn = Some(info.clone());
     }
-    {
-        let mut guard = state.debug_session.lock();
-        *guard = Some(session);
-    }
+    read_pc(core)
+}
+
+#[tauri::command]
+pub async fn debug_attach(options: DebugAttachOptions, state: State<'_, AppState>) -> AppResult<DebugStatus> {
+    log::info!("=== Debug attach ===");
+
+    let slot = Arc::clone(&state.debug_session);
+    let info_slot = Arc::clone(&state.debug_connection_info);
+    let breakpoints = Arc::clone(&state.debug_breakpoints);
+    let (info, core_state) = blocking(move || {
+        // 关闭已有调试连接；硬件断点随旧连接失效，记录一并清空
+        *info_slot.lock() = None;
+        drop(slot.lock().take());
+        breakpoints.lock().clear();
+
+        let OpenedSession {
+            mut session,
+            connection_info,
+            ..
+        } = open_session(&options.connect)?;
+
+        let core_state = if options.halt_after_attach {
+            let mut core = session
+                .core(0)
+                .map_err(|e| AppError::DebugError(format!("获取核心失败: {}", e)))?;
+            let info = core
+                .halt(HALT_TIMEOUT)
+                .map_err(|e| AppError::DebugError(format!("halt 失败: {}", e)))?;
+            halted_at(info.pc)
+        } else {
+            DebugCoreState {
+                state: "running".to_string(),
+                pc: None,
+            }
+        };
+
+        *slot.lock() = Some(session);
+        *info_slot.lock() = Some(connection_info.clone());
+        Ok((connection_info, core_state))
+    })
+    .await?;
 
     log::info!("✓ Debug attached, core 状态: {}", core_state.state);
 
@@ -198,53 +206,47 @@ pub async fn debug_attach(options: DebugAttachOptions, state: State<'_, AppState
 
 #[tauri::command]
 pub async fn debug_detach(state: State<'_, AppState>) -> AppResult<()> {
-    {
-        let mut guard = state.debug_session.lock();
+    let slot = Arc::clone(&state.debug_session);
+    let info_slot = Arc::clone(&state.debug_connection_info);
+    let breakpoints = Arc::clone(&state.debug_breakpoints);
+    blocking(move || {
+        let previous = slot.lock().take();
         // detach 前让芯片继续跑，避免离开后还停在 halt 状态
-        if let Some(session) = guard.as_mut() {
+        if let Some(mut session) = previous {
             if let Ok(mut core) = session.core(0) {
                 let _ = core.run();
             }
         }
-        *guard = None;
-    }
-    {
-        let mut conn = state.debug_connection_info.lock();
-        *conn = None;
-    }
+        *info_slot.lock() = None;
+        // 断点只存在于这次连接的硬件里，断开后不能再展示
+        breakpoints.lock().clear();
+        Ok(())
+    })
+    .await?;
     log::info!("Debug detached");
     Ok(())
 }
 
 #[tauri::command]
 pub async fn debug_get_status(state: State<'_, AppState>) -> AppResult<DebugStatus> {
-    let mut guard = state.debug_session.lock();
     let info = state.debug_connection_info.lock().clone();
-
-    let core_state = match guard.as_mut() {
-        None => None,
-        Some(session) => match session.core(0) {
-            Ok(mut core) => {
-                let halted = core.core_halted().unwrap_or(false);
-                let pc = if halted {
-                    core.registers().pc().and_then(|reg| core.read_core_reg(reg).ok())
-                } else {
-                    None
-                };
-                Some(DebugCoreState {
-                    state: if halted { "halted".into() } else { "running".into() },
-                    pc,
-                })
-            }
-            Err(_) => None,
-        },
-    };
-
-    Ok(DebugStatus {
-        attached: guard.is_some(),
-        info,
-        core: core_state,
+    let slot = Arc::clone(&state.debug_session);
+    let (attached, core) = blocking(move || {
+        let mut guard = slot.lock();
+        let core_state = guard.as_mut().and_then(|session| {
+            let mut core = session.core(0).ok()?;
+            let halted = core.core_halted().unwrap_or(false);
+            let pc = if halted { read_pc(&mut core).ok() } else { None };
+            Some(DebugCoreState {
+                state: if halted { "halted".into() } else { "running".into() },
+                pc,
+            })
+        });
+        Ok((guard.is_some(), core_state))
     })
+    .await?;
+
+    Ok(DebugStatus { attached, info, core })
 }
 
 // ============================================================================
@@ -253,180 +255,138 @@ pub async fn debug_get_status(state: State<'_, AppState>) -> AppResult<DebugStat
 
 #[tauri::command]
 pub async fn debug_run(state: State<'_, AppState>) -> AppResult<DebugCoreState> {
-    let mut guard = state.debug_session.lock();
-    let session = guard.as_mut().ok_or(AppError::NotConnected)?;
-    let mut core = session
-        .core(0)
-        .map_err(|e| AppError::DebugError(format!("获取核心失败: {}", e)))?;
-    core.run()
-        .map_err(|e| AppError::DebugError(format!("run 失败: {}", e)))?;
-    Ok(DebugCoreState {
-        state: "running".into(),
-        pc: None,
+    with_core(&state, |core| {
+        core.run()
+            .map_err(|e| AppError::DebugError(format!("run 失败: {}", e)))?;
+        Ok(DebugCoreState {
+            state: "running".into(),
+            pc: None,
+        })
     })
+    .await
 }
 
 #[tauri::command]
 pub async fn debug_halt(state: State<'_, AppState>) -> AppResult<DebugCoreState> {
-    let mut guard = state.debug_session.lock();
-    let session = guard.as_mut().ok_or(AppError::NotConnected)?;
-    let mut core = session
-        .core(0)
-        .map_err(|e| AppError::DebugError(format!("获取核心失败: {}", e)))?;
-    let info = core
-        .halt(HALT_TIMEOUT)
-        .map_err(|e| AppError::DebugError(format!("halt 失败: {}", e)))?;
-    Ok(DebugCoreState {
-        state: "halted".into(),
-        pc: Some(info.pc),
+    with_core(&state, |core| {
+        let info = core
+            .halt(HALT_TIMEOUT)
+            .map_err(|e| AppError::DebugError(format!("halt 失败: {}", e)))?;
+        Ok(halted_at(info.pc))
     })
+    .await
 }
 
 #[tauri::command]
 pub async fn debug_step_in(state: State<'_, AppState>) -> AppResult<DebugCoreState> {
-    let mut guard = state.debug_session.lock();
-    let session = guard.as_mut().ok_or(AppError::NotConnected)?;
-    let mut core = session
-        .core(0)
-        .map_err(|e| AppError::DebugError(format!("获取核心失败: {}", e)))?;
-    let info = core
-        .step()
-        .map_err(|e| AppError::DebugError(format!("step 失败: {}", e)))?;
-    Ok(DebugCoreState {
-        state: "halted".into(),
-        pc: Some(info.pc),
+    with_core(&state, |core| {
+        let info = core
+            .step()
+            .map_err(|e| AppError::DebugError(format!("step 失败: {}", e)))?;
+        Ok(halted_at(info.pc))
     })
+    .await
 }
 
 /// 行级 step over：从当前 source line 出发，单步执行直到 file:line 改变。
+/// 单步进入了被调函数时，在返回地址下临时断点跑回来，真正跨过调用。
 /// 没加载 ELF / DWARF 行表里没匹配时退化为 step_in。
 /// 上限 8000 条指令防失控。
 #[tauri::command]
 pub async fn debug_step_over(state: State<'_, AppState>) -> AppResult<DebugCoreState> {
     const MAX_STEPS: usize = 8000;
+    const CALL_RETURN_TIMEOUT: Duration = Duration::from_secs(5);
 
-    // 取起点 PC + source 位置
-    let mut session_guard = state.debug_session.lock();
-    let session = session_guard.as_mut().ok_or(AppError::NotConnected)?;
-    let mut core = session
-        .core(0)
-        .map_err(|e| AppError::DebugError(format!("获取核心失败: {}", e)))?;
+    let symbols = Arc::clone(&state.debug_symbols);
+    with_core(&state, move |core| {
+        let starting_pc = read_pc(core)?;
 
-    let pc_reg = core
-        .registers()
-        .pc()
-        .ok_or_else(|| AppError::DebugError("当前架构无 PC 寄存器".to_string()))?;
-    let starting_pc: u64 = core
-        .read_core_reg(pc_reg)
-        .map_err(|e| AppError::DebugError(format!("读 PC 失败: {}", e)))?;
-
-    let sym_guard = state.debug_symbols.lock();
-    let symbols = sym_guard.as_ref();
-    let starting_loc = symbols.map(|s| s.resolve(starting_pc));
-    let starting_file = starting_loc.as_ref().and_then(|l| l.file.clone());
-    let starting_line = starting_loc.as_ref().and_then(|l| l.line);
-    let starting_function = starting_loc.as_ref().and_then(|l| l.function.clone());
-
-    let mut last_pc = starting_pc;
-    for _ in 0..MAX_STEPS {
-        let info = core
-            .step()
-            .map_err(|e| AppError::DebugError(format!("step 失败: {}", e)))?;
-        last_pc = info.pc;
-
-        let Some(syms) = symbols else {
+        let sym_guard = symbols.lock();
+        let Some(syms) = sym_guard.as_ref() else {
             // 没有符号信息：退化为 step_in
-            break;
+            let info = core
+                .step()
+                .map_err(|e| AppError::DebugError(format!("step 失败: {}", e)))?;
+            return Ok(halted_at(info.pc));
         };
-        let loc = syms.resolve(last_pc);
-        // file 或 line 改变 → 算"下一行"
-        if loc.file != starting_file || loc.line != starting_line {
-            // 函数变了说明已离开当前作用域，也停（避免 step over 跨调用栈）
-            // 同函数内只是行变化才是真正的 step over 完成
-            break;
-        }
-        // 即使 file/line 相同，但函数已变（如内联函数边界），也停
-        if loc.function != starting_function {
-            break;
-        }
-    }
-    drop(sym_guard);
+        let start = syms.resolve(starting_pc);
 
-    Ok(DebugCoreState {
-        state: "halted".into(),
-        pc: Some(last_pc),
+        let mut last_pc = starting_pc;
+        for _ in 0..MAX_STEPS {
+            let info = core
+                .step()
+                .map_err(|e| AppError::DebugError(format!("step 失败: {}", e)))?;
+            last_pc = info.pc;
+            let mut loc = syms.resolve(last_pc);
+
+            if loc.function != start.function {
+                // 刚执行完调用指令时 LR 指回当前函数：跑到返回地址，跨过整个调用
+                let return_addr = read_lr(core).map(|lr| lr & !1u64).filter(|&addr| addr != 0);
+                match return_addr {
+                    Some(addr) if syms.resolve(addr).function == start.function => {
+                        last_pc = run_to_address(core, addr, CALL_RETURN_TIMEOUT)?;
+                        if last_pc != addr {
+                            // 超时被强制暂停，停在哪里就报告哪里
+                            break;
+                        }
+                        loc = syms.resolve(last_pc);
+                    }
+                    // 函数返回、尾调用等：已离开当前作用域，停下
+                    _ => break,
+                }
+            }
+
+            // file 或 line 改变 → 算"下一行"
+            if loc.file != start.file || loc.line != start.line {
+                break;
+            }
+        }
+
+        Ok(halted_at(last_pc))
     })
+    .await
 }
 
 /// step out：在 LR 处下临时硬断点，run，等待命中后清除断点。
-/// 5 秒超时，避免目标永远不返回时卡死。
+/// 5 秒超时，超时后强制暂停并返回实际位置。
 #[tauri::command]
 pub async fn debug_step_out(state: State<'_, AppState>) -> AppResult<DebugCoreState> {
-    let mut session_guard = state.debug_session.lock();
-    let session = session_guard.as_mut().ok_or(AppError::NotConnected)?;
-    let mut core = session
-        .core(0)
-        .map_err(|e| AppError::DebugError(format!("获取核心失败: {}", e)))?;
-
-    let lr_reg = core
-        .registers()
-        .core_registers()
-        .find(|r| r.name().eq_ignore_ascii_case("LR"))
-        .ok_or_else(|| AppError::DebugError("当前架构未暴露 LR 寄存器，无法 step out".to_string()))?;
-    let lr: u64 = core
-        .read_core_reg(lr_reg)
-        .map_err(|e| AppError::DebugError(format!("读 LR 失败: {}", e)))?;
-
-    // ARM Thumb: LR 最低位为 1 表示 thumb，硬断点地址必须清零最低位
-    let return_addr = lr & !1u64;
-
-    core.set_hw_breakpoint(return_addr)
-        .map_err(|e| AppError::DebugError(format!("step_out 临时断点失败: {}", e)))?;
-
-    let run_result = (|| -> AppResult<u64> {
-        core.run()
-            .map_err(|e| AppError::DebugError(format!("run 失败: {}", e)))?;
-        core.wait_for_core_halted(Duration::from_secs(5))
-            .map_err(|e| AppError::DebugError(format!("等待 step_out 命中超时: {}", e)))?;
-        let pc_reg = core
-            .registers()
-            .pc()
-            .ok_or_else(|| AppError::DebugError("当前架构无 PC 寄存器".to_string()))?;
-        core.read_core_reg(pc_reg)
-            .map_err(|e| AppError::DebugError(format!("读 PC 失败: {}", e)))
-    })();
-
-    // 清掉临时断点不论成功失败
-    let _ = core.clear_hw_breakpoint(return_addr);
-
-    let pc = run_result?;
-    Ok(DebugCoreState {
-        state: "halted".into(),
-        pc: Some(pc),
+    with_core(&state, |core| {
+        let lr =
+            read_lr(core).ok_or_else(|| AppError::DebugError("当前架构未暴露 LR 寄存器，无法 step out".to_string()))?;
+        // ARM Thumb: LR 最低位为 1 表示 thumb，硬断点地址必须清零最低位。
+        // 异常处理函数里 LR 是 EXC_RETURN（0xFFFFFFxx），不是可下断点的地址。
+        if lr >= 0xFFFF_FF00 {
+            return Err(AppError::DebugError(
+                "当前处于异常处理函数中（LR 为 EXC_RETURN），暂不支持 step out".to_string(),
+            ));
+        }
+        let pc = run_to_address(core, lr & !1u64, Duration::from_secs(5))?;
+        Ok(halted_at(pc))
     })
+    .await
 }
 
 #[tauri::command]
 pub async fn debug_reset(state: State<'_, AppState>) -> AppResult<DebugCoreState> {
-    let mut guard = state.debug_session.lock();
-    let session = guard.as_mut().ok_or(AppError::NotConnected)?;
-    let mut core = session
-        .core(0)
-        .map_err(|e| AppError::DebugError(format!("获取核心失败: {}", e)))?;
-    core.reset()
-        .map_err(|e| AppError::DebugError(format!("reset 失败: {}", e)))?;
-    Ok(DebugCoreState {
-        state: "running".into(),
-        pc: None,
+    with_core(&state, |core| {
+        core.reset()
+            .map_err(|e| AppError::DebugError(format!("reset 失败: {}", e)))?;
+        Ok(DebugCoreState {
+            state: "running".into(),
+            pc: None,
+        })
     })
+    .await
 }
 
 // ============================================================================
 // 内存读写
 // ============================================================================
 
+/// 返回原始字节（二进制 IPC），前端收到的是 ArrayBuffer
 #[tauri::command]
-pub async fn debug_read_memory(options: DebugReadMemoryOptions, state: State<'_, AppState>) -> AppResult<Vec<u8>> {
+pub async fn debug_read_memory(options: DebugReadMemoryOptions, state: State<'_, AppState>) -> AppResult<Response> {
     const MAX_READ: u32 = 1024 * 1024;
     if options.size > MAX_READ {
         return Err(AppError::InvalidInput(format!(
@@ -435,16 +395,14 @@ pub async fn debug_read_memory(options: DebugReadMemoryOptions, state: State<'_,
         )));
     }
 
-    let mut guard = state.debug_session.lock();
-    let session = guard.as_mut().ok_or(AppError::NotConnected)?;
-    let mut core = session
-        .core(0)
-        .map_err(|e| AppError::DebugError(format!("获取核心失败: {}", e)))?;
-
-    let mut data = vec![0u8; options.size as usize];
-    core.read_8(options.address, &mut data)
-        .map_err(|e| AppError::MemoryError(e.to_string()))?;
-    Ok(data)
+    let data = with_core(&state, move |core| {
+        let mut data = vec![0u8; options.size as usize];
+        core.read_8(options.address, &mut data)
+            .map_err(|e| AppError::MemoryError(e.to_string()))?;
+        Ok(data)
+    })
+    .await?;
+    Ok(Response::new(data))
 }
 
 // ============================================================================
@@ -453,50 +411,43 @@ pub async fn debug_read_memory(options: DebugReadMemoryOptions, state: State<'_,
 
 #[tauri::command]
 pub async fn debug_read_registers(state: State<'_, AppState>) -> AppResult<Vec<RegisterValue>> {
-    let mut guard = state.debug_session.lock();
-    let session = guard.as_mut().ok_or(AppError::NotConnected)?;
-    let mut core = session
-        .core(0)
-        .map_err(|e| AppError::DebugError(format!("获取核心失败: {}", e)))?;
+    with_core(&state, |core| {
+        // 必须 halt 才能稳定读寄存器
+        if !core.core_halted().unwrap_or(false) {
+            return Err(AppError::DebugError(
+                "核心当前正在运行，需先 halt 才能读寄存器".to_string(),
+            ));
+        }
 
-    // 必须 halt 才能稳定读寄存器
-    if !core.core_halted().unwrap_or(false) {
-        return Err(AppError::DebugError(
-            "核心当前正在运行，需先 halt 才能读寄存器".to_string(),
-        ));
-    }
-
-    let register_file = core.registers();
-    let mut registers: Vec<RegisterValue> = Vec::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-    let push =
-        |list: &mut Vec<RegisterValue>, seen: &mut std::collections::HashSet<String>, name: String, value: u64| {
+        let register_file = core.registers();
+        let mut registers: Vec<RegisterValue> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut push = |name: String, value: u64| {
             if seen.insert(name.clone()) {
-                list.push(RegisterValue { name, value });
+                registers.push(RegisterValue { name, value });
             }
         };
 
-    if let Some(pc) = register_file.pc() {
-        if let Ok(value) = core.read_core_reg(pc) {
-            push(&mut registers, &mut seen, "PC".to_string(), value);
+        if let Some(pc) = register_file.pc() {
+            if let Ok(value) = core.read_core_reg(pc) {
+                push("PC".to_string(), value);
+            }
         }
-    }
-
-    for reg in register_file.core_registers() {
-        if let Ok(value) = core.read_core_reg(reg) {
-            push(&mut registers, &mut seen, reg.name().to_string(), value);
+        for reg in register_file.core_registers() {
+            if let Ok(value) = core.read_core_reg(reg) {
+                push(reg.name().to_string(), value);
+            }
         }
-    }
-
-    for i in 0..4 {
-        let reg = register_file.argument_register(i);
-        if let Ok(value) = core.read_core_reg(reg) {
-            push(&mut registers, &mut seen, reg.name().to_string(), value);
+        for i in 0..4 {
+            let reg = register_file.argument_register(i);
+            if let Ok(value) = core.read_core_reg(reg) {
+                push(reg.name().to_string(), value);
+            }
         }
-    }
 
-    Ok(registers)
+        Ok(registers)
+    })
+    .await
 }
 
 // ============================================================================
@@ -505,13 +456,11 @@ pub async fn debug_read_registers(state: State<'_, AppState>) -> AppResult<Vec<R
 
 #[tauri::command]
 pub async fn debug_load_elf(path: String, state: State<'_, AppState>) -> AppResult<DebugLoadElfResult> {
-    let symbols = DebugSymbols::load(&path).map_err(AppError::DebugError)?;
+    // 大 ELF 的 DWARF 解析要几百毫秒到几秒，放到阻塞线程
+    let symbols = blocking(move || DebugSymbols::load(&path).map_err(AppError::DebugError)).await?;
     let summary = symbols.summary();
     let symbol_list = symbols.symbols.clone();
-    {
-        let mut guard = state.debug_symbols.lock();
-        *guard = Some(symbols);
-    }
+    *state.debug_symbols.lock() = Some(symbols);
     log::info!(
         "ELF loaded: {} ({} 函数 / {} 变量)",
         summary.path,
@@ -539,24 +488,20 @@ pub async fn debug_clear_symbols(state: State<'_, AppState>) -> AppResult<()> {
 
 /// 在指定地址设硬断点，并把记录加入跟踪列表（幂等）。
 /// `source` 可选：源码断点会带 (file, line)，按地址加的断点为 None。
-fn register_breakpoint(
+async fn register_breakpoint(
     state: &AppState,
     address: u64,
     source: Option<(String, u32)>,
 ) -> AppResult<DebugBreakpointEntry> {
-    {
-        let mut session_guard = state.debug_session.lock();
-        let session = session_guard.as_mut().ok_or(AppError::NotConnected)?;
-        let mut core = session
-            .core(0)
-            .map_err(|e| AppError::DebugError(format!("获取核心失败: {}", e)))?;
+    with_core(state, move |core| {
         core.set_hw_breakpoint(address)
-            .map_err(|e| AppError::DebugError(format!("设置断点失败: {}", e)))?;
-    }
+            .map_err(|e| AppError::DebugError(format!("设置断点失败: {}", e)))
+    })
+    .await?;
 
     let mut bp_guard = state.debug_breakpoints.lock();
     if let Some(existing) = bp_guard.iter_mut().find(|b| b.address == address) {
-        // 重复设置：保留已有的 hit_count，仅在原本无 source 时补充 source 信息
+        // 重复设置：保留已有记录，仅在原本无 source 时补充 source 信息
         if let Some((file, line)) = source {
             if existing.file.is_none() {
                 existing.file = Some(file);
@@ -588,7 +533,7 @@ pub async fn debug_set_breakpoint(
     options: DebugBreakpointOptions,
     state: State<'_, AppState>,
 ) -> AppResult<DebugBreakpointEntry> {
-    register_breakpoint(&state, options.address, None)
+    register_breakpoint(&state, options.address, None).await
 }
 
 #[tauri::command]
@@ -608,24 +553,20 @@ pub async fn debug_set_source_breakpoint(
             ))
         })?
     };
-    register_breakpoint(&state, address, Some((options.file, options.line)))
+    register_breakpoint(&state, address, Some((options.file, options.line))).await
 }
 
 #[tauri::command]
 pub async fn debug_clear_breakpoint(options: DebugBreakpointOptions, state: State<'_, AppState>) -> AppResult<()> {
-    {
-        let mut session_guard = state.debug_session.lock();
-        let session = session_guard.as_mut().ok_or(AppError::NotConnected)?;
-        let mut core = session
-            .core(0)
-            .map_err(|e| AppError::DebugError(format!("获取核心失败: {}", e)))?;
-        core.clear_hw_breakpoint(options.address)
-            .map_err(|e| AppError::DebugError(format!("清除断点失败: {}", e)))?;
-    }
+    let address = options.address;
+    with_core(&state, move |core| {
+        core.clear_hw_breakpoint(address)
+            .map_err(|e| AppError::DebugError(format!("清除断点失败: {}", e)))
+    })
+    .await?;
 
-    let mut bp_guard = state.debug_breakpoints.lock();
-    bp_guard.retain(|b| b.address != options.address);
-    log::info!("断点已清除: 0x{:08X}", options.address);
+    state.debug_breakpoints.lock().retain(|b| b.address != address);
+    log::info!("断点已清除: 0x{:08X}", address);
     Ok(())
 }
 
@@ -637,20 +578,19 @@ pub async fn debug_list_breakpoints(state: State<'_, AppState>) -> AppResult<Vec
 #[tauri::command]
 pub async fn debug_clear_all_breakpoints(state: State<'_, AppState>) -> AppResult<()> {
     let addresses: Vec<u64> = state.debug_breakpoints.lock().iter().map(|b| b.address).collect();
+    let count = addresses.len();
 
-    {
-        let mut session_guard = state.debug_session.lock();
-        if let Some(session) = session_guard.as_mut() {
-            if let Ok(mut core) = session.core(0) {
-                for addr in &addresses {
-                    let _ = core.clear_hw_breakpoint(*addr);
-                }
-            }
+    // 尽力清除硬件断点；未连接或核心不可用时断点已随连接失效，只需清空记录
+    let _ = with_core(&state, move |core| {
+        for addr in &addresses {
+            let _ = core.clear_hw_breakpoint(*addr);
         }
-    }
+        Ok(())
+    })
+    .await;
 
     state.debug_breakpoints.lock().clear();
-    log::info!("已清除全部 {} 个断点", addresses.len());
+    log::info!("已清除全部 {} 个断点", count);
     Ok(())
 }
 
@@ -664,6 +604,9 @@ pub async fn debug_read_source(path: String) -> AppResult<DebugReadSourceResult>
     const MAX_SOURCE_SIZE: u64 = 4 * 1024 * 1024; // 4MB 上限
 
     let p = Path::new(&path);
+    if !is_source_file(p) {
+        return Err(AppError::InvalidInput(format!("不支持读取该类型的文件: {}", path)));
+    }
     if !p.exists() {
         return Err(AppError::DebugError(format!("源文件不存在: {}", path)));
     }
@@ -679,36 +622,31 @@ pub async fn debug_read_source(path: String) -> AppResult<DebugReadSourceResult>
     Ok(DebugReadSourceResult { path, content })
 }
 
+/// 源码视图只需要读取 C/C++/汇编源码和头文件
+fn is_source_file(path: &std::path::Path) -> bool {
+    const SOURCE_EXTENSIONS: &[&str] = &[
+        "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "hxx", "inl", "s", "asm", "inc", "rs",
+    ];
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| SOURCE_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
+}
+
 /// 调用栈：当前 PC（必出）+ 由 LR 推出来的调用者（如果 LR 非零、非 PC
 /// 自身且能取到）。受限于不做 .debug_frame 解栈，深度限于 2 帧；
 /// 真实 N 帧展开是阶段 6 的事。
 #[tauri::command]
 pub async fn debug_get_call_stack(state: State<'_, AppState>) -> AppResult<Vec<DebugFrame>> {
-    let (pc, lr): (u64, Option<u64>) = {
-        let mut guard = state.debug_session.lock();
-        let session = guard.as_mut().ok_or(AppError::NotConnected)?;
-        let mut core = session
-            .core(0)
-            .map_err(|e| AppError::DebugError(format!("获取核心失败: {}", e)))?;
+    let registers = with_core(&state, |core| {
         if !core.core_halted().unwrap_or(false) {
-            return Ok(Vec::new());
+            return Ok(None);
         }
-
-        let pc_reg = core
-            .registers()
-            .pc()
-            .ok_or_else(|| AppError::DebugError("当前架构无 PC 寄存器描述".to_string()))?;
-        let pc = core
-            .read_core_reg(pc_reg)
-            .map_err(|e| AppError::DebugError(format!("读 PC 失败: {}", e)))?;
-
         // LR 可能拿不到（架构无）或读取失败：失败就只回单帧
-        let lr_opt = core
-            .registers()
-            .core_registers()
-            .find(|r| r.name().eq_ignore_ascii_case("LR"))
-            .and_then(|reg| core.read_core_reg(reg).ok());
-        (pc, lr_opt)
+        Ok(Some((read_pc(core)?, read_lr(core))))
+    })
+    .await?;
+    let Some((pc, lr)) = registers else {
+        return Ok(Vec::new());
     };
 
     let symbols_guard = state.debug_symbols.lock();
@@ -741,4 +679,18 @@ pub async fn debug_get_call_stack(state: State<'_, AppState>) -> AppResult<Vec<D
     }
 
     Ok(frames)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_source_file;
+    use std::path::Path;
+
+    #[test]
+    fn only_source_extensions_are_readable() {
+        assert!(is_source_file(Path::new("/proj/src/main.c")));
+        assert!(is_source_file(Path::new("/proj/startup.S")));
+        assert!(!is_source_file(Path::new("/home/user/.ssh/id_rsa")));
+        assert!(!is_source_file(Path::new("/etc/passwd")));
+    }
 }

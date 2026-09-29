@@ -11,7 +11,7 @@ use addr2line::Loader;
 use object::{Object, ObjectSymbol, SymbolKind};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -52,8 +52,8 @@ pub struct DebugSymbols {
     pub path: String,
     pub symbols: Vec<ElfSymbol>,
     loader: Loader,
-    /// (规范化的 file 路径, line) → 第一次出现的 PC 地址。
-    /// 同一行可能对应多条指令；用第一条作为代表。
+    /// (规范化的 file 路径, line) → 该行语句起始指令中最小的 PC 地址。
+    /// 同一行可能对应多条指令；只取 is_stmt 行，断点才会落在语句开头。
     line_to_addr: HashMap<(String, u32), u64>,
 }
 
@@ -151,12 +151,16 @@ impl DebugSymbols {
         }
 
         if loc.function.is_none() {
-            // 回退：符号表里找包含 pc 的函数
+            // 回退：符号表里找包含 pc 的函数。
+            // Thumb 函数符号地址最低位为 1，比较前清零，否则函数首条指令匹配不到。
             if let Some(sym) = self
                 .symbols
                 .iter()
                 .filter(|s| s.category == SymbolCategory::Function)
-                .find(|s| pc >= s.address && pc < s.address + s.size.max(1))
+                .find(|s| {
+                    let start = s.address & !1;
+                    pc >= start && pc < start + s.size.max(1)
+                })
             {
                 loc.function = Some(sym.name.clone());
             }
@@ -236,7 +240,7 @@ fn build_line_index(obj: &object::File<'_>) -> Option<HashMap<(String, u32), u64
         };
         let mut rows = line_program.rows();
         while let Ok(Some((header_inner, row))) = rows.next_row() {
-            if row.end_sequence() {
+            if row.end_sequence() || !row.is_stmt() {
                 continue;
             }
             let line = match row.line() {
@@ -264,7 +268,10 @@ fn build_line_index(obj: &object::File<'_>) -> Option<HashMap<(String, u32), u64
             };
 
             let full = build_full_path(comp_dir.as_deref(), dir_str.as_deref(), &name_str);
-            index.entry((normalize_path(&full), line)).or_insert(addr);
+            index
+                .entry((normalize_path(&full), line))
+                .and_modify(|existing| *existing = (*existing).min(addr))
+                .or_insert(addr);
         }
     }
 
@@ -278,27 +285,68 @@ fn reader_to_string(reader: &gimli::EndianRcSlice<gimli::RunTimeEndian>) -> Opti
     Some(String::from_utf8_lossy(&slice).into_owned())
 }
 
+/// 拼接 DWARF 中的 comp_dir / 目录 / 文件名。
+///
+/// 这里按字符串拼接而不用 `PathBuf`：ELF 可能在另一种系统上编译，
+/// 例如在 macOS/Linux 上调试 Windows 编译的固件时，`C:\src\main.c` 这类盘符路径 用 `PathBuf::push`
+/// 不会被识别为绝对路径，拼出来的路径就是错的。
 fn build_full_path(comp_dir: Option<&str>, dir: Option<&str>, name: &str) -> String {
     let is_absolute = |p: &str| {
         let bytes = p.as_bytes();
         matches!(bytes.first(), Some(b'/') | Some(b'\\')) || (bytes.len() >= 2 && bytes[1] == b':')
     };
 
-    let mut pb = PathBuf::new();
-    match dir {
-        Some(d) if is_absolute(d) => pb.push(d),
-        Some(d) => {
-            if let Some(cd) = comp_dir {
-                pb.push(cd);
-            }
-            pb.push(d);
+    let mut full = String::new();
+    for part in [comp_dir, dir, Some(name)].into_iter().flatten() {
+        if part.is_empty() {
+            continue;
         }
-        None => {
-            if let Some(cd) = comp_dir {
-                pb.push(cd);
+        if is_absolute(part) || full.is_empty() {
+            full = part.to_string();
+        } else {
+            if !full.ends_with(['/', '\\']) {
+                full.push('/');
             }
+            full.push_str(part);
         }
     }
-    pb.push(name);
-    pb.to_string_lossy().into_owned()
+    full
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_path_converts_backslashes() {
+        assert_eq!(normalize_path(r"C:\proj\src\main.c"), "C:/proj/src/main.c");
+    }
+
+    #[test]
+    fn path_tail_keeps_last_two_segments() {
+        assert_eq!(path_tail("/a/b/src/main.c"), "src/main.c");
+        assert_eq!(path_tail("main.c"), "main.c");
+    }
+
+    #[test]
+    fn build_full_path_joins_relative_parts() {
+        assert_eq!(
+            build_full_path(Some("/work"), Some("src"), "main.c"),
+            "/work/src/main.c"
+        );
+        assert_eq!(build_full_path(None, None, "main.c"), "main.c");
+    }
+
+    #[test]
+    fn build_full_path_absolute_part_resets_prefix() {
+        assert_eq!(
+            build_full_path(Some("/work"), Some("/usr/include"), "stdio.h"),
+            "/usr/include/stdio.h"
+        );
+        assert_eq!(
+            normalize_path(&build_full_path(Some(r"C:\proj"), Some("src"), "main.c")),
+            "C:/proj/src/main.c"
+        );
+        assert_eq!(build_full_path(Some("/work"), Some(r"D:\lib"), "a.c"), r"D:\lib/a.c");
+    }
 }

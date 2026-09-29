@@ -1,14 +1,16 @@
+use crate::commands::with_session;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use parking_lot::Mutex;
 use probe_rs::flashing::{
-    download_file_with_options, erase_all, BinOptions, DownloadOptions, ElfOptions, FlashProgress, Format,
+    download_file_with_options, erase, erase_all, BinOptions, DownloadOptions, ElfOptions, FlashProgress, Format,
     ProgressEvent, ProgressOperation,
 };
-use probe_rs::MemoryInterface;
+use probe_rs::{MemoryInterface, Session};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
+use tauri::ipc::Response;
 use tauri::{Emitter, State, Window};
 
 /// 进度跟踪状态
@@ -61,12 +63,9 @@ pub struct FlashOptions {
     pub reset_after: bool,
     #[serde(default)]
     pub erase_mode: EraseMode,
-    // 自定义烧录地址
+    // 自定义烧录地址（仅 BIN 格式使用）
     pub use_custom_address: Option<bool>,
     pub custom_flash_address: Option<u64>,
-    pub custom_flash_size: Option<u64>,
-    // Flash算法选择
-    pub flash_algorithm: Option<String>,
     // 预校验：烧录前检查，跳过已正确的块（加速重复烧录）
     #[serde(default)]
     pub preverify: bool,
@@ -81,19 +80,30 @@ pub struct FlashProgressEvent {
 
 #[tauri::command]
 pub async fn flash_firmware(options: FlashOptions, state: State<'_, AppState>, window: Window) -> AppResult<()> {
-    let mut session_guard = state.session.lock();
-    let session = session_guard.as_mut().ok_or(AppError::NotConnected)?;
+    // 烧录可能持续数分钟，整段放到阻塞线程执行
+    with_session(&state.session, move |session| {
+        flash_firmware_blocking(session, options, window)
+    })
+    .await
+}
 
+/// 主 Flash（第一个非别名 NVM 区域）的起始地址，BIN 烧录与校验共用
+fn default_flash_start(session: &Session) -> u64 {
+    session
+        .target()
+        .memory_map
+        .iter()
+        .find_map(|region| match region {
+            probe_rs::config::MemoryRegion::Nvm(r) if !r.is_alias => Some(r.range.start),
+            _ => None,
+        })
+        .unwrap_or(0x08000000) // 默认STM32 Flash地址
+}
+
+fn flash_firmware_blocking(session: &mut Session, options: FlashOptions, window: Window) -> AppResult<()> {
     let path = Path::new(&options.file_path);
     if !path.exists() {
         return Err(AppError::FileError("文件不存在".to_string()));
-    }
-
-    // 记录选中的Flash算法（如果指定）
-    if let Some(ref algo_name) = options.flash_algorithm {
-        log::info!("用户选择的Flash算法: {}", algo_name);
-        // 注意：probe-rs 0.27 会自动使用目标配置中的算法
-        // 这里只是记录用户的选择，实际算法由probe-rs根据地址范围自动选择
     }
 
     // 根据文件扩展名确定格式
@@ -112,18 +122,7 @@ pub async fn flash_firmware(options: FlashOptions, state: State<'_, AppState>, w
                 options.custom_flash_address.unwrap_or(0x08000000)
             } else {
                 // 自动从目标内存映射获取Flash起始地址
-                session
-                    .target()
-                    .memory_map
-                    .iter()
-                    .find_map(|region| {
-                        if let probe_rs::config::MemoryRegion::Nvm(r) = region {
-                            Some(r.range.start)
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or(0x08000000)
+                default_flash_start(session)
             };
             log::info!("BIN 基地址: 0x{:08X}", base_address);
             Format::Bin(BinOptions {
@@ -299,11 +298,14 @@ pub async fn erase_chip(
     state: State<'_, AppState>,
     window: Window,
 ) -> AppResult<()> {
-    let mut session_guard = state.session.lock();
-    let session = session_guard.as_mut().ok_or(AppError::NotConnected)?;
-
     let erase_mode = options.map(|o| o.erase_mode).unwrap_or(EraseMode::ChipErase);
+    with_session(&state.session, move |session| {
+        erase_chip_blocking(session, erase_mode, window)
+    })
+    .await
+}
 
+fn erase_chip_blocking(session: &mut Session, erase_mode: EraseMode, window: Window) -> AppResult<()> {
     match erase_mode {
         EraseMode::ChipErase => {
             let _ = window.emit(
@@ -337,36 +339,21 @@ pub async fn erase_chip(
                 },
             );
 
-            // 获取所有 Flash 区域并逐个扇区擦除
+            // 按扇区逐个擦除所有主 NVM 区域（别名区域指向同一块 Flash，跳过）。
+            // 直接调用 probe-rs 的范围擦除，不再“写满 0xFF”：省掉一遍编程，也不用按区域大小分配内存。
             let flash_regions: Vec<_> = session
                 .target()
                 .memory_map
                 .iter()
-                .filter_map(|region| {
-                    if let probe_rs::config::MemoryRegion::Nvm(r) = region {
-                        Some((r.range.start, r.range.end - r.range.start))
-                    } else {
-                        None
-                    }
+                .filter_map(|region| match region {
+                    probe_rs::config::MemoryRegion::Nvm(r) if !r.is_alias => Some(r.range.clone()),
+                    _ => None,
                 })
                 .collect();
 
-            for (address, size) in flash_regions {
-                // 使用 FlashLoader 进行扇区擦除
-                let mut loader = session.target().flash_loader();
-
-                // 添加 0xFF 数据来触发扇区擦除
-                let erase_data = vec![0xFFu8; size as usize];
-                loader
-                    .add_data(address, &erase_data)
-                    .map_err(|e| AppError::FlashError(e.to_string()))?;
-
-                let mut download_options = DownloadOptions::default();
-                download_options.do_chip_erase = false; // 使用扇区擦除
-                download_options.skip_erase = false;
-
-                loader
-                    .commit(session, download_options)
+            let mut progress = FlashProgress::new(|_| {});
+            for range in flash_regions {
+                erase(session, &mut progress, range.start, range.end, false)
                     .map_err(|e| AppError::FlashError(e.to_string()))?;
             }
 
@@ -401,27 +388,28 @@ pub async fn erase_sector(options: EraseSectorOptions, state: State<'_, AppState
         )));
     }
 
-    let mut session_guard = state.session.lock();
-    let session = session_guard.as_mut().ok_or(AppError::NotConnected)?;
-
-    // 使用 probe-rs 的扇区擦除功能
-    let mut loader = session.target().flash_loader();
-
-    // 添加要擦除的区域
-    loader
-        .add_data(options.address, &vec![0xFF; options.size as usize])
-        .map_err(|e| AppError::FlashError(e.to_string()))?;
-
-    // 执行擦除
-    loader
-        .commit(session, DownloadOptions::default())
-        .map_err(|e| AppError::FlashError(e.to_string()))?;
-
-    Ok(())
+    with_session(&state.session, move |session| {
+        // 用 FlashLoader 写入 0xFF：覆盖到的扇区整体擦除，不要求地址按扇区对齐
+        let mut loader = session.target().flash_loader();
+        loader
+            .add_data(options.address, &vec![0xFF; options.size as usize])
+            .map_err(|e| AppError::FlashError(e.to_string()))?;
+        loader
+            .commit(session, DownloadOptions::default())
+            .map_err(|e| AppError::FlashError(e.to_string()))
+    })
+    .await
 }
 
 #[tauri::command]
-pub async fn verify_firmware(file_path: String, state: State<'_, AppState>, window: Window) -> AppResult<bool> {
+/// `address` 为 BIN 固件的起始地址，应与烧录时使用的地址一致；
+/// 不传时使用主 Flash 起始地址（与烧录时未启用自定义地址的行为相同）。
+pub async fn verify_firmware(
+    file_path: String,
+    address: Option<u64>,
+    state: State<'_, AppState>,
+    window: Window,
+) -> AppResult<bool> {
     // 检测文件格式，只支持 BIN 格式
     {
         use std::io::Read as IoRead;
@@ -443,9 +431,18 @@ pub async fn verify_firmware(file_path: String, state: State<'_, AppState>, wind
         }
     }
 
-    let mut session_guard = state.session.lock();
-    let session = session_guard.as_mut().ok_or(AppError::NotConnected)?;
+    with_session(&state.session, move |session| {
+        verify_firmware_blocking(session, file_path, address, window)
+    })
+    .await
+}
 
+fn verify_firmware_blocking(
+    session: &mut Session,
+    file_path: String,
+    address: Option<u64>,
+    window: Window,
+) -> AppResult<bool> {
     let path = Path::new(&file_path);
     if !path.exists() {
         return Err(AppError::FileError("文件不存在".to_string()));
@@ -464,19 +461,7 @@ pub async fn verify_firmware(file_path: String, state: State<'_, AppState>, wind
     let file_data = std::fs::read(path)?;
     let total_size = file_data.len();
 
-    // 获取Flash起始地址（假设是主Flash区域）
-    let target = session.target();
-    let flash_start = target
-        .memory_map
-        .iter()
-        .find_map(|region| {
-            if let probe_rs::config::MemoryRegion::Nvm(r) = region {
-                Some(r.range.start)
-            } else {
-                None
-            }
-        })
-        .unwrap_or(0x08000000); // 默认STM32 Flash地址
+    let flash_start = address.unwrap_or_else(|| default_flash_start(session));
 
     let mut core = session.core(0).map_err(|e| AppError::FlashError(e.to_string()))?;
 
@@ -541,7 +526,7 @@ pub struct ReadFlashOptions {
 }
 
 #[tauri::command]
-pub async fn read_flash(options: ReadFlashOptions, state: State<'_, AppState>) -> AppResult<Vec<u8>> {
+pub async fn read_flash(options: ReadFlashOptions, state: State<'_, AppState>) -> AppResult<Response> {
     const MAX_FLASH_READ_SIZE: u64 = 64 * 1024 * 1024;
     if options.size > MAX_FLASH_READ_SIZE {
         return Err(AppError::InvalidInput(format!(
@@ -550,16 +535,16 @@ pub async fn read_flash(options: ReadFlashOptions, state: State<'_, AppState>) -
         )));
     }
 
-    let mut session_guard = state.session.lock();
-    let session = session_guard.as_mut().ok_or(AppError::NotConnected)?;
+    let data = with_session(&state.session, move |session| {
+        let mut core = session.core(0).map_err(|e| AppError::FlashError(e.to_string()))?;
+        let mut data = vec![0u8; options.size as usize];
+        core.read(options.address, &mut data)
+            .map_err(|e| AppError::FlashError(e.to_string()))?;
+        Ok(data)
+    })
+    .await?;
 
-    let mut core = session.core(0).map_err(|e| AppError::FlashError(e.to_string()))?;
-
-    let mut data = vec![0u8; options.size as usize];
-    core.read(options.address, &mut data)
-        .map_err(|e| AppError::FlashError(e.to_string()))?;
-
-    Ok(data)
+    Ok(Response::new(data))
 }
 
 /// 固件文件信息
@@ -599,4 +584,26 @@ pub async fn get_firmware_info(file_path: String) -> AppResult<FirmwareFileInfo>
         modified,
         exists: true,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProgressState;
+
+    #[test]
+    fn progress_maps_erase_and_program_phases() {
+        let mut state = ProgressState::new();
+        assert_eq!(state.calculate_progress(), 0.0);
+
+        state.erase_total = 100;
+        state.erase_current = 50;
+        assert!((state.calculate_progress() - 0.15).abs() < 1e-6);
+
+        state.program_total = 200;
+        state.program_current = 100;
+        assert!((state.calculate_progress() - 0.60).abs() < 1e-6);
+
+        state.program_current = 200;
+        assert!((state.calculate_progress() - 0.90).abs() < 1e-6);
+    }
 }

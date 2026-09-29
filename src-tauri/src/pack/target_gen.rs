@@ -579,13 +579,27 @@ struct CollectedAlgo {
     load_address: u64,
 }
 
+/// 生成的目标定义：probe-rs YAML + 每个设备匹配到的算法摘要（设备名 → 算法），供扫描报告复用
+pub struct GeneratedTargets {
+    pub yaml: String,
+    pub device_algorithms: std::collections::HashMap<String, crate::pack::scan_report::AlgorithmInfo>,
+}
+
+/// 把任意文本写成 YAML 双引号字符串。
+///
+/// 设备名、算法描述都来自不可信的 PDSC/FLM，里面可能有 `:`、`#`、换行等字符；
+/// 直接拼接会让 YAML 解析失败甚至被注入额外结构。JSON 字符串是合法的 YAML 双引号标量。
+fn yaml_str(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+}
+
 /// 生成 probe-rs YAML 格式的目标定义（包含 Flash 算法）
 pub fn generate_probe_rs_yaml_with_algo(
     devices: &[DeviceDefinition],
     family_name: &str,
     pack_dir: &Path,
     progress_callback: Option<&ProgressCallback>,
-) -> AppResult<String> {
+) -> AppResult<GeneratedTargets> {
     use std::collections::HashMap;
 
     // 查找所有 FLM 文件
@@ -605,6 +619,7 @@ pub fn generate_probe_rs_yaml_with_algo(
     // 第一遍：收集所有唯一的 flash 算法，并记录设备与算法的映射
     let mut algo_map: HashMap<String, CollectedAlgo> = HashMap::new();
     let mut device_algo_map: HashMap<String, String> = HashMap::new(); // device_name -> algo_name
+    let mut device_algorithms: HashMap<String, crate::pack::scan_report::AlgorithmInfo> = HashMap::new();
 
     let total_devices = devices.len();
     for (idx, device) in devices.iter().enumerate() {
@@ -632,6 +647,16 @@ pub fn generate_probe_rs_yaml_with_algo(
                     device.memory.flash_size,
                 ) {
                     Ok(mut algo) => {
+                        device_algorithms.insert(
+                            device.name.clone(),
+                            crate::pack::scan_report::AlgorithmInfo {
+                                name: algo.name.clone(),
+                                flm_file: flm_path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                                page_size: algo.flash_properties.page_size as u32,
+                                sector_count: algo.flash_properties.sectors.len(),
+                            },
+                        );
+
                         // 算法名称包含 Flash 大小，避免不同大小的设备共享错误的扇区配置
                         let flash_size_kb = device.memory.flash_size / 1024;
                         let algo_key = format!("{}_{}", algo.name, flash_size_kb);
@@ -679,7 +704,7 @@ pub fn generate_probe_rs_yaml_with_algo(
     ));
 
     // 家族定义
-    yaml.push_str(&format!("name: {}\n", family_name));
+    yaml.push_str(&format!("name: {}\n", yaml_str(family_name)));
     yaml.push_str("manufacturer:\n");
     yaml.push_str("  id: 0x0\n");
     yaml.push_str("  cc: 0x0\n");
@@ -692,13 +717,13 @@ pub fn generate_probe_rs_yaml_with_algo(
 
         for collected in algo_map.values() {
             let algo = &collected.algo;
-            yaml.push_str(&format!("  - name: {}\n", algo.name));
-            yaml.push_str(&format!("    description: {}\n", algo.description));
+            yaml.push_str(&format!("  - name: {}\n", yaml_str(&algo.name)));
+            yaml.push_str(&format!("    description: {}\n", yaml_str(&algo.description)));
             yaml.push_str("    default: true\n");
             // load_address 需要预留空间给 flash loader header
             // probe-rs 会在 load_address 之前分配 header 空间
             // 预留 0x20 (32 字节) 给 header
-            let adjusted_load_address = collected.load_address + 0x20;
+            let adjusted_load_address = collected.load_address.saturating_add(0x20);
             yaml.push_str(&format!("    load_address: 0x{:x}\n", adjusted_load_address));
             yaml.push_str(&format!("    data_section_offset: 0x{:x}\n", algo.data_section_offset));
             yaml.push_str("    transfer_encoding: raw\n");
@@ -749,7 +774,7 @@ pub fn generate_probe_rs_yaml_with_algo(
             }
 
             // Instructions (base64 编码)
-            yaml.push_str(&format!("    instructions: \"{}\"\n", algo.instructions));
+            yaml.push_str(&format!("    instructions: {}\n", yaml_str(&algo.instructions)));
 
             log::info!("生成家族级 Flash 算法: {}", algo.name);
         }
@@ -759,7 +784,16 @@ pub fn generate_probe_rs_yaml_with_algo(
     yaml.push_str("variants:\n");
 
     for device in devices {
-        yaml.push_str(&format!("  - name: {}\n", device.name));
+        // 地址范围来自 PDSC，超出 64 位地址空间说明描述有误，跳过该设备
+        let (Some(ram_end), Some(flash_end)) = (
+            device.memory.ram_start.checked_add(device.memory.ram_size),
+            device.memory.flash_start.checked_add(device.memory.flash_size),
+        ) else {
+            log::warn!("设备 {} 的内存范围超出地址空间，已跳过", device.name);
+            continue;
+        };
+
+        yaml.push_str(&format!("  - name: {}\n", yaml_str(&device.name)));
 
         // 内存映射
         yaml.push_str("    memory_map:\n");
@@ -769,10 +803,7 @@ pub fn generate_probe_rs_yaml_with_algo(
             yaml.push_str("      - !Ram\n");
             yaml.push_str("        range:\n");
             yaml.push_str(&format!("          start: 0x{:x}\n", device.memory.ram_start));
-            yaml.push_str(&format!(
-                "          end: 0x{:x}\n",
-                device.memory.ram_start + device.memory.ram_size
-            ));
+            yaml.push_str(&format!("          end: 0x{:x}\n", ram_end));
             yaml.push_str("        cores:\n");
             yaml.push_str("          - main\n");
         }
@@ -782,10 +813,7 @@ pub fn generate_probe_rs_yaml_with_algo(
             yaml.push_str("      - !Nvm\n");
             yaml.push_str("        range:\n");
             yaml.push_str(&format!("          start: 0x{:x}\n", device.memory.flash_start));
-            yaml.push_str(&format!(
-                "          end: 0x{:x}\n",
-                device.memory.flash_start + device.memory.flash_size
-            ));
+            yaml.push_str(&format!("          end: 0x{:x}\n", flash_end));
             yaml.push_str("        cores:\n");
             yaml.push_str("          - main\n");
         }
@@ -800,7 +828,7 @@ pub fn generate_probe_rs_yaml_with_algo(
         // Flash 算法引用（只输出算法名称）
         if let Some(algo_name) = device_algo_map.get(&device.name) {
             yaml.push_str("    flash_algorithms:\n");
-            yaml.push_str(&format!("      - {}\n", algo_name));
+            yaml.push_str(&format!("      - {}\n", yaml_str(algo_name)));
         }
 
         yaml.push('\n');
@@ -816,84 +844,60 @@ pub fn generate_probe_rs_yaml_with_algo(
         ));
     }
 
-    Ok(yaml)
+    Ok(GeneratedTargets {
+        yaml,
+        device_algorithms,
+    })
 }
 
 /// 映射处理器核心类型到 probe-rs 格式
 fn map_core_type(core: &str) -> &'static str {
-    match core.to_uppercase().as_str() {
-        "CORTEX-M0" | "CM0" => "armv6m",
-        "CORTEX-M0+" | "CM0PLUS" | "CM0+" => "armv6m",
-        "CORTEX-M3" | "CM3" => "armv7m",
-        "CORTEX-M4" | "CM4" => "armv7em",
-        "CORTEX-M7" | "CM7" => "armv7em",
-        "CORTEX-M33" | "CM33" => "armv8m",
-        _ => "armv7em", // 默认使用 ARMv7E-M (Cortex-M4/M7)
+    match core.trim().to_uppercase().as_str() {
+        "CORTEX-M0" | "CM0" | "CORTEX-M0+" | "CM0PLUS" | "CM0+" | "CORTEX-M1" | "CM1" | "SC000" => "armv6m",
+        "CORTEX-M3" | "CM3" | "SC300" => "armv7m",
+        "CORTEX-M4" | "CM4" | "CORTEX-M7" | "CM7" => "armv7em",
+        "CORTEX-M23" | "CM23" | "CORTEX-M33" | "CM33" | "CORTEX-M35P" | "CM35P" | "CORTEX-M52" | "CM52"
+        | "CORTEX-M55" | "CM55" | "CORTEX-M85" | "CM85" | "ARMV8MBL" | "ARMV8MML" | "ARMV81MML" => "armv8m",
+        other => {
+            log::warn!("未知的处理器核心类型 {:?}，按 ARMv7E-M 处理", other);
+            "armv7em"
+        }
     }
 }
 
-/// 生成扫描报告
+/// 生成扫描报告（算法匹配结果来自 [`generate_probe_rs_yaml_with_algo`]）
 pub fn generate_scan_report(
     devices: &[DeviceDefinition],
     pack_name: &str,
-    pack_dir: &Path,
-) -> AppResult<crate::pack::scan_report::PackScanReport> {
-    use crate::pack::scan_report::{AlgorithmInfo, DeviceReport, DeviceStatus, PackScanReport};
+    device_algorithms: &std::collections::HashMap<String, crate::pack::scan_report::AlgorithmInfo>,
+) -> crate::pack::scan_report::PackScanReport {
+    use crate::pack::scan_report::{DeviceReport, DeviceStatus, PackScanReport};
 
     let mut report = PackScanReport::new(pack_name.to_string());
 
-    // 查找所有 FLM 文件
-    let flm_files = flash_algo::find_flm_files(pack_dir)?;
-
     for device in devices {
-        let mut device_report = DeviceReport {
+        let algorithm = device_algorithms.get(&device.name).cloned();
+        // 有 Flash 却没匹配到算法的设备无法烧录；没有 Flash 的设备（如纯 RAM 设备）正常
+        let status = if device.memory.flash_size > 0 && algorithm.is_none() {
+            DeviceStatus::Warning
+        } else {
+            DeviceStatus::Ok
+        };
+        report.add_device(DeviceReport {
             name: device.name.clone(),
             core: device.processor.core.clone(),
             flash_start: device.memory.flash_start,
             flash_size: device.memory.flash_size,
             ram_start: device.memory.ram_start,
             ram_size: device.memory.ram_size,
-            algorithm: None,
-            status: DeviceStatus::Ok,
-        };
-
-        // 尝试匹配算法
-        if device.memory.flash_size > 0 {
-            if let Some(flm_path) = flash_algo::match_flm_for_device(&flm_files, &device.name, device.memory.flash_size)
-            {
-                match flash_algo::extract_flash_algorithm_from_flm(
-                    &flm_path,
-                    device.memory.flash_start,
-                    device.memory.flash_size,
-                ) {
-                    Ok(algo) => {
-                        device_report.algorithm = Some(AlgorithmInfo {
-                            name: algo.name.clone(),
-                            flm_file: flm_path.file_name().unwrap_or_default().to_string_lossy().to_string(),
-                            page_size: algo.flash_properties.page_size as u32,
-                            sector_count: algo.flash_properties.sectors.len(),
-                        });
-                        device_report.status = DeviceStatus::Ok;
-                    }
-                    Err(_) => {
-                        device_report.status = DeviceStatus::Warning;
-                    }
-                }
-            } else {
-                device_report.status = DeviceStatus::Warning;
-            }
-        } else {
-            // 没有 Flash 的设备（如纯 RAM 设备）
-            device_report.status = DeviceStatus::Ok;
-        }
-
-        report.add_device(device_report);
+            algorithm,
+            status,
+        });
     }
 
     // 计算算法统计
     report.calculate_algorithm_stats();
-
-    Ok(report)
+    report
 }
 
 /// 保存扫描报告到文件
@@ -960,5 +964,78 @@ pub fn needs_rescan(pack_dir: &Path) -> bool {
             // 无法检测版本，可能是旧版本，需要重新扫描
             true
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_hex_and_decimal_numbers() {
+        assert_eq!(parse_hex_or_dec("0x08000000"), Some(0x0800_0000));
+        assert_eq!(parse_hex_or_dec(" 0X1f "), Some(0x1f));
+        assert_eq!(parse_hex_or_dec("65536"), Some(65536));
+        assert_eq!(parse_hex_or_dec("0xZZ"), None);
+        assert_eq!(parse_hex_or_dec(""), None);
+    }
+
+    #[test]
+    fn maps_cortex_m_cores() {
+        assert_eq!(map_core_type("Cortex-M0+"), "armv6m");
+        assert_eq!(map_core_type("Cortex-M3"), "armv7m");
+        assert_eq!(map_core_type("Cortex-M4"), "armv7em");
+        assert_eq!(map_core_type("Cortex-M23"), "armv8m");
+        assert_eq!(map_core_type("Cortex-M33"), "armv8m");
+        assert_eq!(map_core_type("Cortex-M55"), "armv8m");
+        assert_eq!(map_core_type("Cortex-M85"), "armv8m");
+    }
+
+    fn device(name: &str, ram_start: u64, ram_size: u64) -> DeviceDefinition {
+        DeviceDefinition {
+            name: name.to_string(),
+            processor: ProcessorInfo {
+                core: "Cortex-M4".to_string(),
+                fpu: true,
+                mpu: true,
+            },
+            memory: MemoryInfo {
+                ram_start,
+                ram_size,
+                flash_start: 0x0800_0000,
+                flash_size: 0x1_0000,
+            },
+            flash_algorithm: None,
+        }
+    }
+
+    #[test]
+    fn yaml_escapes_untrusted_names_and_skips_overflowing_devices() {
+        let pack_dir = std::env::temp_dir().join(format!("micu-target-gen-{}", std::process::id()));
+        std::fs::create_dir_all(&pack_dir).unwrap();
+        // 生成器要求 Pack 里至少有一个 FLM；内容无效时只会跳过算法，不影响设备定义
+        std::fs::write(pack_dir.join("dummy.flm"), b"not an elf").unwrap();
+
+        let devices = vec![
+            device("EVIL: #chip\n  - name: injected", 0x2000_0000, 0x1000),
+            device("OVERFLOW", u64::MAX, 0x10),
+        ];
+        let generated = generate_probe_rs_yaml_with_algo(&devices, "Family: x", &pack_dir, None).unwrap();
+        let _ = std::fs::remove_dir_all(&pack_dir);
+
+        let mut registry = probe_rs::config::Registry::new();
+        registry.add_target_family_from_yaml(&generated.yaml).unwrap();
+        let names = registry.families()[0]
+            .variants()
+            .iter()
+            .map(|v| v.name.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["EVIL: #chip\n  - name: injected".to_string()]);
+    }
+
+    #[test]
+    fn scan_report_warns_for_flash_devices_without_algorithm() {
+        let report = generate_scan_report(&[device("A", 0x2000_0000, 0x1000)], "pack", &Default::default());
+        assert_eq!(report.devices_without_algo, 1);
     }
 }

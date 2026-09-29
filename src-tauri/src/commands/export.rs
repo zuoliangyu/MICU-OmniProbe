@@ -73,3 +73,45 @@ pub fn write_binary_file(path: String, content_base64: String) -> AppResult<()> 
     std::fs::write(&path, bytes)?;
     Ok(())
 }
+
+/// 可作为界面背景的图片扩展名
+const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
+
+/// 把用户选择的背景图加入 asset 协议白名单。
+///
+/// asset 协议默认不开放任何路径（tauri.conf.json 中 scope 为空），
+/// 前端在 `convertFileSrc` 之前调用本命令，只放行这一个图片文件，
+/// 避免 webview 通过 asset:// 读取任意本地文件。
+#[tauri::command]
+pub fn allow_image_asset(path: String, app: tauri::AppHandle) -> AppResult<()> {
+    use tauri::Manager;
+    validate_export_path(&path, IMAGE_EXTENSIONS)?;
+    app.asset_protocol_scope()
+        .allow_file(&path)
+        .map_err(|e| AppError::ConfigError(format!("无法授权访问背景图片: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn absolute(name: &str) -> String {
+        std::env::temp_dir().join(name).to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn accepts_absolute_path_with_allowed_extension() {
+        assert!(validate_export_path(&absolute("data.CSV"), TEXT_EXTENSIONS).is_ok());
+        assert!(validate_export_path(&absolute("bg.png"), IMAGE_EXTENSIONS).is_ok());
+    }
+
+    #[test]
+    fn rejects_relative_empty_nul_and_executable_paths() {
+        assert!(validate_export_path("data.csv", TEXT_EXTENSIONS).is_err());
+        assert!(validate_export_path("", TEXT_EXTENSIONS).is_err());
+        assert!(validate_export_path(&absolute("a\0.csv"), TEXT_EXTENSIONS).is_err());
+        assert!(validate_export_path(&absolute("run.bat"), TEXT_EXTENSIONS).is_err());
+        assert!(validate_export_path(&absolute("noext"), TEXT_EXTENSIONS).is_err());
+        assert!(validate_export_path(&absolute("id_rsa"), IMAGE_EXTENSIONS).is_err());
+    }
+}

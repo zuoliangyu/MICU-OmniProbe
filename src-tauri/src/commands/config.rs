@@ -1,3 +1,4 @@
+use crate::commands::blocking;
 use crate::error::{AppError, AppResult};
 use crate::pack::manager::{PackInfo, PackManager};
 use crate::pack::target_gen;
@@ -375,6 +376,11 @@ pub async fn search_chips(query: String) -> AppResult<Vec<String>> {
 /// 应该在应用启动时调用
 #[tauri::command]
 pub async fn init_packs() -> AppResult<usize> {
+    // 解压、解析 PDSC/FLM 都是同步文件操作，放到阻塞线程
+    blocking(init_packs_blocking).await
+}
+
+fn init_packs_blocking() -> AppResult<usize> {
     let manager = PackManager::new()?;
     let packs = manager.list_packs()?;
 
@@ -443,7 +449,8 @@ fn register_pack_devices(
     log::info!("从 Pack {} 解析到 {} 个设备", pack_name, devices.len());
 
     // 生成 probe-rs YAML 格式（包含 Flash 算法）
-    let yaml_content = target_gen::generate_probe_rs_yaml_with_algo(&devices, pack_name, pack_dir, progress_callback)?;
+    let generated = target_gen::generate_probe_rs_yaml_with_algo(&devices, pack_name, pack_dir, progress_callback)?;
+    let yaml_content = generated.yaml;
 
     // 保存 YAML 文件到 Pack 目录
     let yaml_path = pack_dir.join("targets.yaml");
@@ -451,27 +458,22 @@ fn register_pack_devices(
 
     log::info!("生成 YAML 文件: {:?}", yaml_path);
 
-    let mut registry = TARGET_REGISTRY.lock();
-    match registry.add_target_family_from_yaml(&yaml_content) {
+    // 只在注册时持锁；后面生成扫描报告还要读文件，不能一直挡住芯片搜索和连接
+    let registered = TARGET_REGISTRY.lock().add_target_family_from_yaml(&yaml_content);
+    match registered {
         Ok(_) => {
             log::info!("成功注册 {} 个设备到 probe-rs（包含 Flash 算法）", devices.len());
             // 生成并保存扫描报告
-            match target_gen::generate_scan_report(&devices, pack_name, pack_dir) {
-                Ok(report) => {
-                    if let Err(e) = target_gen::save_scan_report(&report, pack_dir) {
-                        log::warn!("保存扫描报告失败: {}", e);
-                    } else {
-                        log::info!(
-                            "扫描报告已生成: {} 个设备，{} 个有算法，{} 个无算法",
-                            report.total_devices,
-                            report.devices_with_algo,
-                            report.devices_without_algo
-                        );
-                    }
-                }
-                Err(e) => {
-                    log::warn!("生成扫描报告失败: {}", e);
-                }
+            let report = target_gen::generate_scan_report(&devices, pack_name, &generated.device_algorithms);
+            if let Err(e) = target_gen::save_scan_report(&report, pack_dir) {
+                log::warn!("保存扫描报告失败: {}", e);
+            } else {
+                log::info!(
+                    "扫描报告已生成: {} 个设备，{} 个有算法，{} 个无算法",
+                    report.total_devices,
+                    report.devices_with_algo,
+                    report.devices_without_algo
+                );
             }
 
             Ok(devices.len())
@@ -567,6 +569,10 @@ pub async fn get_chip_info(chip_name: String) -> AppResult<ChipInfo> {
 
 #[tauri::command]
 pub async fn import_pack(app: tauri::AppHandle, pack_path: String) -> AppResult<PackInfo> {
+    blocking(move || import_pack_blocking(app, pack_path)).await
+}
+
+fn import_pack_blocking(app: tauri::AppHandle, pack_path: String) -> AppResult<PackInfo> {
     let path = PathBuf::from(&pack_path);
 
     if !path.exists() {
@@ -610,9 +616,7 @@ pub async fn list_imported_packs() -> AppResult<Vec<PackInfo>> {
 
 #[tauri::command]
 pub async fn delete_pack(pack_name: String) -> AppResult<()> {
-    let manager = PackManager::new()?;
-    manager.delete_pack(&pack_name)?;
-    Ok(())
+    blocking(move || PackManager::new()?.delete_pack(&pack_name)).await
 }
 
 /// 获取Pack扫描报告
