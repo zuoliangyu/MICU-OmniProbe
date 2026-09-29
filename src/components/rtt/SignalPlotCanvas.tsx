@@ -614,7 +614,13 @@ export function SignalPlotCanvas({
         <canvas ref={canvasRef} className="h-full w-full cursor-crosshair" />
 
         {chartConfig.showLegend && (
-          <div className="pointer-events-none absolute left-[68px] right-6 top-1 flex flex-wrap justify-end gap-2">
+          // 右上角有浮动"自适应"按钮时给它让出位置，避免盖住最后一个图例
+          <div
+            className={cn(
+              "pointer-events-none absolute left-[68px] top-1 flex flex-wrap justify-end gap-2",
+              onChartConfigChange ? "right-6" : "right-[104px]"
+            )}
+          >
             {visibleSeries.map((item) => {
               const latestValue = chartData[chartData.length - 1]?.values[item.key];
               const latestRawValue = rawChartData?.[rawChartData.length - 1]?.values[item.key];
