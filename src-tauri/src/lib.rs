@@ -4,6 +4,8 @@ pub mod ble;
 pub mod commands;
 pub mod debug_symbols;
 pub mod error;
+#[cfg(windows)]
+mod jlink;
 pub mod legacy_migration;
 pub mod pack;
 pub mod serial;
@@ -19,6 +21,8 @@ use tauri::{Emitter, Manager};
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::init();
+    // 探针枚举也依赖 Espressif 插件，须在任何连接命令执行前完成注册。
+    std::sync::LazyLock::force(&config::TARGET_REGISTRY);
 
     let context = tauri::generate_context!();
     legacy_migration::migrate_legacy_data(&context.config().identifier);

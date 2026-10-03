@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { RefreshCw, Plug, Unplug, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
@@ -22,6 +23,7 @@ export function Sidebar() {
   const debugMode = useAppStore((s) => s.mode === "debug");
   const settings = useProbeStore((s) => s.settings);
   const loading = useProbeStore((s) => s.loading);
+  const error = useProbeStore((s) => s.error);
   const autoDisconnect = useProbeStore((s) => s.autoDisconnect);
   const autoDisconnectTimeout = useProbeStore((s) => s.autoDisconnectTimeout);
   const setProbes = useProbeStore((s) => s.setProbes);
@@ -44,36 +46,57 @@ export function Sidebar() {
 
   const addLog = useLogStore((state) => state.addLog);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const probeRequestRef = useRef({ generation: 0 });
+  const [detecting, setDetecting] = useState(false);
 
   // 折叠状态
   const [interfaceSettingsOpen, setInterfaceSettingsOpen] = useState(false);
   const [autoDisconnectOpen, setAutoDisconnectOpen] = useState(false);
 
   const refreshProbes = useCallback(async () => {
+    const request = ++probeRequestRef.current.generation;
     try {
-      setLoading(true);
+      setDetecting(true);
       const probeList = await listProbes();
+      if (request !== probeRequestRef.current.generation) return;
 
       setProbes(probeList);
+      setError(null);
 
-      // 自动选择第一个探针（如果有且当前没有选择）
-      if (probeList.length > 0 && !useProbeStore.getState().selectedProbe) {
-        selectProbe(probeList[0]);
-        addLog("info", `检测到 ${probeList.length} 个探针，已自动选择第一个`);
-      } else {
-        addLog("info", `检测到 ${probeList.length} 个探针`);
-      }
+      const current = useProbeStore.getState().selectedProbe;
+      // 保持已选序列号，并更新运行库提示；设备移除后不保留失效的选择。
+      const next = probeList.find((probe) => probe.probe_id === current?.probe_id) ?? probeList[0] ?? null;
+      selectProbe(next);
+      addLog("info", `检测到 ${probeList.length} 个探针`);
     } catch (error) {
+      if (request !== probeRequestRef.current.generation) return;
       setError(String(error));
       addLog("error", `探针检测失败: ${error}`);
     } finally {
-      setLoading(false);
+      if (request === probeRequestRef.current.generation) setDetecting(false);
     }
-  }, [setLoading, setProbes, selectProbe, setError, addLog]);
+  }, [setProbes, selectProbe, setError, addLog]);
 
   useEffect(() => {
-    refreshProbes();
-  }, [refreshProbes]);
+    const requests = probeRequestRef.current;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    void refreshProbes();
+    const unlisten = listen("usb-device-changed", () => {
+      if (disposed) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => void refreshProbes(), 300);
+    }).catch((error) => {
+      addLog("warn", `无法监听探针插拔，请使用刷新按钮：${error}`);
+      return () => {};
+    });
+    return () => {
+      disposed = true;
+      ++requests.generation;
+      clearTimeout(timer);
+      void unlisten.then((stop) => stop());
+    };
+  }, [refreshProbes, addLog]);
 
   useEffect(
     () => () => {
@@ -90,10 +113,11 @@ export function Sidebar() {
 
     try {
       setLoading(true);
+      setError(null);
       addLog("info", `正在连接 ${selectedChip}...`);
 
       const targetInfo = await connectTarget({
-        probe_identifier: selectedProbe.identifier,
+        probe_identifier: selectedProbe.probe_id,
         target: selectedChip,
         interface_type: settings.interfaceType === "SWD" ? "Swd" : "Jtag",
         clock_speed: settings.clockSpeed,
@@ -164,7 +188,7 @@ export function Sidebar() {
   // 连接按钮不可用时直接告诉用户还缺哪一步，而不是只给一个灰按钮
   const missingRequirement = !selectedProbe
     ? probes.length === 0
-      ? "未检测到探针，请插入后点击刷新"
+      ? "未检测到探针，插入后将自动识别"
       : "请先选择调试探针"
     : !selectedChip
       ? "请先搜索并选择目标芯片"
@@ -188,11 +212,11 @@ export function Sidebar() {
                 size="icon"
                 className="h-6 w-6"
                 onClick={refreshProbes}
-                disabled={loading}
+                disabled={loading || detecting}
                 aria-label="刷新探针列表"
                 title="刷新探针列表"
               >
-                <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+                <RefreshCw className={`h-3 w-3 ${detecting ? "animate-spin" : ""}`} />
               </Button>
             </div>
           </CardHeader>
@@ -202,10 +226,11 @@ export function Sidebar() {
               onValueChange={(value) => {
                 const probe = probes.find((p) => p.probe_id === value);
                 selectProbe(probe || null);
+                setError(null);
               }}
               disabled={connected}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="调试探针">
                 {selectedProbe ? (
                   <div className="flex items-center gap-2 w-full">
                     <span className="truncate flex-1 text-left">{selectedProbe.identifier}</span>
@@ -234,6 +259,16 @@ export function Sidebar() {
                 ))}
               </SelectContent>
             </Select>
+            {selectedProbe?.connection_hint && !error && (
+              <p role="status" className="break-words text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+                {selectedProbe.connection_hint}
+              </p>
+            )}
+            {error && (
+              <p role="alert" className="break-words text-xs leading-relaxed text-destructive">
+                {error}
+              </p>
+            )}
           </CardContent>
         </Card>
 

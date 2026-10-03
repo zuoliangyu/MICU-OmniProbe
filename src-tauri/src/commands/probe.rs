@@ -22,6 +22,8 @@ pub struct ProbeInfo {
     pub probe_type: String,
     pub dap_version: Option<String>,
     pub debug_info: Option<String>, // 诊断信息
+    #[serde(default)]
+    pub connection_hint: Option<String>,
 }
 
 /// USB 设备诊断信息
@@ -255,7 +257,8 @@ fn enumerate_probes() -> Vec<ProbeInfo> {
     log::info!("=== Probe enumeration (probe-rs) ===");
     log::info!("Total probes found: {}", probes.len());
 
-    let probe_infos: Vec<ProbeInfo> = probes
+    #[allow(unused_mut)]
+    let mut probe_infos: Vec<ProbeInfo> = probes
         .iter()
         .map(|p| {
             let probe_type_str = format!("{:?}", p.probe_type());
@@ -303,9 +306,13 @@ fn enumerate_probes() -> Vec<ProbeInfo> {
                 probe_type,
                 dap_version: dap_version.map(str::to_string),
                 debug_info,
+                connection_hint: None,
             }
         })
         .collect();
+
+    #[cfg(windows)]
+    crate::jlink::augment(&mut probe_infos);
 
     log::info!("=== Probe enumeration end, total {} entries ===", probe_infos.len());
     probe_infos
@@ -339,19 +346,30 @@ pub(crate) fn open_session(options: &ConnectOptions) -> AppResult<OpenedSession>
         options.connect_mode
     );
 
-    let probes = Lister::new().list_all();
-    let probe_info = probes
+    let probes = enumerate_probes();
+    let mut matches = probes
         .iter()
-        .find(|p| p.identifier == options.probe_identifier)
-        .ok_or_else(|| {
-            log::error!("未找到指定的探针: {}", options.probe_identifier);
-            AppError::ProbeError("未找到指定的探针".to_string())
-        })?;
-
-    let mut probe = probe_info.open().map_err(|e| {
-        log::error!("打开探针失败: {}", e);
-        AppError::ProbeError(format!("打开探针失败: {}", e))
+        .filter(|p| p.probe_id == options.probe_identifier || p.identifier == options.probe_identifier);
+    let probe_info = matches.next().ok_or_else(|| {
+        log::error!("未找到指定的探针: {}", options.probe_identifier);
+        AppError::ProbeError("未找到指定的探针".to_string())
     })?;
+    if matches.next().is_some() {
+        return Err(AppError::ProbeError(
+            "有多个同名探针，请刷新列表并按序列号重新选择。".into(),
+        ));
+    }
+
+    // 查找时持锁，打开设备和 attach 期间不阻塞芯片搜索及 Pack 导入。
+    let target = TARGET_REGISTRY
+        .lock()
+        .get_target_by_name(&options.target)
+        .map_err(|e| AppError::ProbeError(format!("无法查找芯片 '{}': {e}", options.target)))?;
+    let mut probe = open_selected_probe(
+        probe_info,
+        options,
+        target.cores.iter().all(|core| core.core_type.is_cortex_m()),
+    )?;
 
     let protocol = match options.interface_type {
         InterfaceType::Swd => WireProtocol::Swd,
@@ -379,13 +397,6 @@ pub(crate) fn open_session(options: &ConnectOptions) -> AppResult<OpenedSession>
         ))
     };
 
-    // 自定义 Registry 包含从 Pack 导入的设备；只在查找时持锁，attach 可能耗时数秒，
-    // 期间不能挡住芯片搜索、Pack 导入等命令。
-    let target = TARGET_REGISTRY
-        .lock()
-        .get_target_by_name(&options.target)
-        .map_err(|e| connect_error(&e))?;
-
     let empty_registry = Registry::new();
     let mut session = if options.connect_mode == ConnectMode::UnderReset {
         probe.attach_under_reset_with_registry(target, Permissions::default(), &empty_registry)
@@ -403,7 +414,7 @@ pub(crate) fn open_session(options: &ConnectOptions) -> AppResult<OpenedSession>
 
     let target_info = build_target_info(&session, chip_id);
     let connection_info = ConnectionInfo {
-        probe_name: options.probe_identifier.clone(),
+        probe_name: probe_info.identifier.clone(),
         probe_serial: probe_info.serial_number.clone(),
         target_name: options.target.clone(),
         core_type: target_info.core_type.clone(),
@@ -415,6 +426,48 @@ pub(crate) fn open_session(options: &ConnectOptions) -> AppResult<OpenedSession>
         session,
         target_info,
         connection_info,
+    })
+}
+
+fn open_selected_probe(
+    info: &ProbeInfo,
+    _options: &ConnectOptions,
+    _cortex_m: bool,
+) -> AppResult<probe_rs::probe::Probe> {
+    #[cfg(windows)]
+    if let Some(serial) = crate::jlink::serial_from_id(&info.probe_id) {
+        if crate::jlink::runtime_available() && _options.interface_type == InterfaceType::Swd && _cortex_m {
+            return crate::jlink::open(serial).map_err(AppError::ProbeError);
+        }
+    }
+
+    // 已使用 WinUSB 的设备及其他探针继续使用原来的传输路径。
+    let raw = Lister::new().list_all().into_iter().find(|probe| {
+        build_probe_id(probe.vendor_id, probe.product_id, &probe.serial_number) == info.probe_id
+            || (probe.vendor_id == info.vendor_id
+                && probe.product_id == info.product_id
+                && probe
+                    .serial_number
+                    .as_deref()
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .zip(info.serial_number.as_deref().and_then(|s| s.parse::<u32>().ok()))
+                    .is_some_and(|(a, b)| a == b))
+    });
+    let result = raw
+        .ok_or_else(|| "探针已断开，请重新插入后重试。".to_string())
+        .and_then(|probe| probe.open().map_err(|error| error.to_string()));
+    result.map_err(|error| {
+        #[cfg(windows)]
+        if crate::jlink::serial_from_id(&info.probe_id).is_some() {
+            let hint = if crate::jlink::runtime_available() {
+                "当前官方驱动接入仅支持 Cortex-M 芯片的 SWD 连接，请检查芯片和接口设置。".into()
+            } else {
+                crate::jlink::missing_runtime_message()
+            };
+            log::warn!("J-Link 连接失败: {error}");
+            return AppError::ProbeError(hint);
+        }
+        AppError::ProbeError(format!("打开探针失败: {error}"))
     })
 }
 

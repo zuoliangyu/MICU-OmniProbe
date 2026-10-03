@@ -160,10 +160,11 @@ export function RttToolbar() {
 
     try {
       setRttConnecting(true);
+      useProbeStore.getState().setError(null);
       addLog("info", `正在连接 RTT (${chipName})...`);
 
       await connectRtt({
-        probe_identifier: selectedProbe.identifier,
+        probe_identifier: selectedProbe.probe_id,
         target: chipName,
         interface_type: settings.interfaceType === "SWD" ? "Swd" : "Jtag",
         clock_speed: settings.clockSpeed,
@@ -174,6 +175,7 @@ export function RttToolbar() {
       addLog("success", `RTT 连接成功: ${chipName}`);
     } catch (error) {
       addLog("error", `RTT 连接失败: ${error}`);
+      useProbeStore.getState().setError(String(error));
       setRttConnected(false);
     } finally {
       setRttConnecting(false);

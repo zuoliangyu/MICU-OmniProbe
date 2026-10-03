@@ -262,6 +262,7 @@ flowchart TB
 - 主要验证：CMSIS-DAP / DAPLINK，支持 DAPv1 HID 与 DAPv2 WinUSB
 - 调试接口：SWD / JTAG
 - probe-rs 支持的 J-Link、ST-Link 等探针理论上可用，但并非所有型号都经过验证
+- Windows J-Link 新增官方运行库接入（Cortex-M / SWD，待实机验证），自动识别并复用现有驱动；安装要求和当前限制见[快速入门](docs/QUICK_START.md#windows-上使用-j-link)
 
 ### 目标芯片
 

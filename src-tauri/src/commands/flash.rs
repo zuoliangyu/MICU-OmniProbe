@@ -3,8 +3,8 @@ use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use parking_lot::Mutex;
 use probe_rs::flashing::{
-    download_file_with_options, erase, erase_all, BinOptions, DownloadOptions, ElfOptions, FlashProgress, Format,
-    ProgressEvent, ProgressOperation,
+    download_file_with_options, erase, erase_all, BinLoader, BinOptions, DownloadOptions, ElfLoader, ElfOptions,
+    FlashProgress, HexLoader, ImageLoader, ProgressEvent, ProgressOperation,
 };
 use probe_rs::{MemoryInterface, Session};
 use serde::{Deserialize, Serialize};
@@ -109,11 +109,11 @@ fn flash_firmware_blocking(session: &mut Session, options: FlashOptions, window:
     // 根据文件扩展名确定格式
     // 支持的格式: ELF, HEX, BIN, AXF (ARM ELF), OUT
     let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase());
-    let format = match ext.as_deref() {
+    let format: Box<dyn ImageLoader> = match ext.as_deref() {
         // Intel HEX 格式
         Some("hex") | Some("ihex") => {
             log::info!("检测到 HEX 格式固件");
-            Format::Hex
+            Box::new(HexLoader)
         }
         // 纯二进制格式 - 需要指定基地址
         Some("bin") => {
@@ -125,20 +125,20 @@ fn flash_firmware_blocking(session: &mut Session, options: FlashOptions, window:
                 default_flash_start(session)
             };
             log::info!("BIN 基地址: 0x{:08X}", base_address);
-            Format::Bin(BinOptions {
+            Box::new(BinLoader(BinOptions {
                 base_address: Some(base_address),
                 skip: 0,
-            })
+            }))
         }
         // ELF 格式 (包括 AXF - ARM eXecutable Format)
         Some("elf") | Some("axf") | Some("out") => {
             log::info!("检测到 ELF 格式固件 (扩展名: {})", ext.as_deref().unwrap_or("unknown"));
-            Format::Elf(ElfOptions::default())
+            Box::new(ElfLoader(ElfOptions::default()))
         }
         // 未知扩展名 - 尝试作为 ELF 解析
         _ => {
             log::info!("未知扩展名 {:?}，尝试作为 ELF 格式解析", ext);
-            Format::Elf(ElfOptions::default())
+            Box::new(ElfLoader(ElfOptions::default()))
         }
     };
 

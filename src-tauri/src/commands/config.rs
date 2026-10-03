@@ -8,9 +8,11 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tauri::Emitter;
 
-// Global target registry - probe-rs 0.31 uses instance-based Registry
-pub static TARGET_REGISTRY: std::sync::LazyLock<Mutex<Registry>> =
-    std::sync::LazyLock::new(|| Mutex::new(Registry::from_builtin_families()));
+// 在创建芯片注册表前注册 Espressif 插件，保留 ESP32 芯片、探针和烧录格式支持。
+pub static TARGET_REGISTRY: std::sync::LazyLock<Mutex<Registry>> = std::sync::LazyLock::new(|| {
+    probe_rs_espressif::register_plugin();
+    Mutex::new(Registry::from_builtin_families())
+});
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChipInfo {
@@ -658,4 +660,19 @@ pub async fn set_custom_packs_directory(path: Option<String>) -> AppResult<()> {
     log::info!("Pack目录配置已更新");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TARGET_REGISTRY;
+
+    #[test]
+    fn builtin_registry_preserves_esp32_and_arm_targets() {
+        let registry = TARGET_REGISTRY.lock();
+        for name in ["esp32c3", "esp32s3", "STM32F103C8"] {
+            registry
+                .get_target_by_name(name)
+                .unwrap_or_else(|error| panic!("无法加载内置芯片 {name}: {error}"));
+        }
+    }
 }

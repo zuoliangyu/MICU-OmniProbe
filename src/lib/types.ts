@@ -8,6 +8,7 @@ export interface ProbeInfo {
   probe_type: string;
   dap_version: string | null;
   debug_info: string | null;
+  connection_hint?: string | null;
 }
 
 // 连接选项

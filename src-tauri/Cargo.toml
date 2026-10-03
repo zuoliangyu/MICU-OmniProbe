@@ -21,7 +21,8 @@ tauri-plugin-process = "2"
 tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-probe-rs = "0.31"
+probe-rs = "0.32"
+probe-rs-espressif = "0.32"
 nusb = "0.1.14"
 quick-xml = { version = "0.37", features = ["serialize"] }
 thiserror = "2"
@@ -44,6 +45,10 @@ btleplug = "0.11"
 uuid = { version = "1", features = ["serde", "v4"] }
 futures = "0.3"
 tauri-plugin-clipboard-manager = "2.4"
+
+[target.'cfg(windows)'.dependencies]
+libloading = "0.7"
+winreg = "0.55"
 
 [features]
 default = ["custom-protocol"]

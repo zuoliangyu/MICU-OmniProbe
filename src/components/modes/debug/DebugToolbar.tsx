@@ -57,10 +57,12 @@ export function DebugToolbar({ onResetLayout }: DebugToolbarProps) {
   const withBusy = async (label: string, fn: () => Promise<void>) => {
     if (busy) return;
     setBusy(true);
+    if (label === "attach") useProbeStore.getState().setError(null);
     try {
       await fn();
     } catch (error) {
       addLog("error", `${label}: ${error}`);
+      if (label === "attach") useProbeStore.getState().setError(String(error));
     } finally {
       setBusy(false);
     }
@@ -79,7 +81,7 @@ export function DebugToolbar({ onResetLayout }: DebugToolbarProps) {
       }
       addLog("info", `调试 attach (${chipName})...`);
       const status = await debugAttach({
-        probe_identifier: selectedProbe.identifier,
+        probe_identifier: selectedProbe.probe_id,
         target: chipName,
         interface_type: settings.interfaceType === "SWD" ? "Swd" : "Jtag",
         clock_speed: settings.clockSpeed,
