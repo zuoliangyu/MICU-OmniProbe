@@ -71,7 +71,7 @@ export function RxFramingSettingsPanel({ framing, setFraming, hint }: RxFramingS
         </div>
       )}
 
-      {hint && <div className="text-[11px] leading-4 text-muted-foreground">{hint}</div>}
+      {hint && <div className="text-xs leading-4 text-muted-foreground">{hint}</div>}
     </div>
   );
 }

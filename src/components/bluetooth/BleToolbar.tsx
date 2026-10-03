@@ -1,6 +1,7 @@
 import { useBluetoothStore } from "@/stores/bluetoothStore";
 import { useLogStore } from "@/stores/logStore";
 import { Button } from "@/components/ui/button";
+import { DataViewSwitch } from "@/components/ui/segmented-control";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LazyChartConfigDialog } from "@/components/lazyDialogs";
@@ -9,19 +10,7 @@ import { RxFramingSettingsPanel } from "@/components/rtt/RxFramingSettingsPanel"
 import { TriggerSettingsPanel } from "@/components/rtt/TriggerSettingsPanel";
 import { SignalWorkspaceControls } from "@/components/rtt/SignalWorkspaceControls";
 import { detectChartConfig, recentChartSamples } from "@/lib/chartAnalysis";
-import {
-  Trash2,
-  Search,
-  FileText,
-  Binary,
-  SplitSquareHorizontal,
-  BarChart3,
-  Snowflake,
-  Play,
-  SlidersHorizontal,
-  Sparkles,
-  Settings2,
-} from "lucide-react";
+import { Trash2, Search, Binary, Snowflake, Play, SlidersHorizontal, Sparkles, Settings2 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useMemo, useState } from "react";
 import type { BleLine } from "@/lib/bleTypes";
@@ -115,17 +104,7 @@ export function BleToolbar() {
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-[12px] border border-border/60 bg-muted/20 px-2 py-2">
-      <div className="flex gap-1">
-        <Button size="sm" variant={viewMode === "text" ? "secondary" : "ghost"} onClick={() => setViewMode("text")}>
-          <FileText className="h-3.5 w-3.5" />
-        </Button>
-        <Button size="sm" variant={viewMode === "split" ? "secondary" : "ghost"} onClick={() => setViewMode("split")}>
-          <SplitSquareHorizontal className="h-3.5 w-3.5" />
-        </Button>
-        <Button size="sm" variant={viewMode === "chart" ? "secondary" : "ghost"} onClick={() => setViewMode("chart")}>
-          <BarChart3 className="h-3.5 w-3.5" />
-        </Button>
-      </div>
+      <DataViewSwitch value={viewMode} onChange={setViewMode} />
 
       <div className="relative ml-auto w-40 sm:w-48">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />

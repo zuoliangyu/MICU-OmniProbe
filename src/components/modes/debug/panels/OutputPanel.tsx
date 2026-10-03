@@ -57,7 +57,7 @@ export function OutputPanel() {
           输出 {debugLogs.length > 0 && `(${debugLogs.length})`}
         </span>
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
             <input
               type="checkbox"
               checked={autoScroll}

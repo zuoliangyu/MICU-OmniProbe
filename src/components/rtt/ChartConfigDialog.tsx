@@ -553,7 +553,7 @@ export function ChartConfigDialog({
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-xs font-medium">{parametricTypeLabel(stage.type)}</span>
-                        <span className="block truncate text-[11px] text-muted-foreground">
+                        <span className="block truncate text-xs text-muted-foreground">
                           {formatFrequency(stage.frequencyHz)} · Q {stage.q.toFixed(2)}
                         </span>
                       </span>
@@ -1299,7 +1299,7 @@ function FrequencyResponsePreview({
           <div className="text-sm font-medium">频率响应</div>
           <p className="text-xs text-muted-foreground">实线为综合响应，虚线为当前选中级；横轴为对数频率。</p>
         </div>
-        <div className="flex gap-3 text-[11px] text-muted-foreground">
+        <div className="flex gap-3 text-xs text-muted-foreground">
           <span>— 综合</span>
           <span className="text-amber-500">┄ 当前级</span>
         </div>

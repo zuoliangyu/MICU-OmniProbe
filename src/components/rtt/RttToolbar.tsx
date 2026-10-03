@@ -8,6 +8,7 @@ import { useProbeStore } from "@/stores/probeStore";
 import { useChipStore } from "@/stores/chipStore";
 import { startRtt, stopRtt, clearRttBuffer, connectRtt, disconnectRtt, getRttConnectionStatus } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
+import { DataViewSwitch } from "@/components/ui/segmented-control";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -19,12 +20,10 @@ import {
   Download,
   Copy,
   Search,
-  FileText,
   Binary,
+  FileText,
   Link,
   Unlink,
-  SplitSquareHorizontal,
-  BarChart3,
   Sparkles,
   SlidersHorizontal,
   Settings2,
@@ -370,32 +369,7 @@ export function RttToolbar() {
       </Button>
 
       <div className="mx-1 h-6 w-px bg-border" />
-      <div className="flex gap-1">
-        <Button
-          size="sm"
-          variant={viewMode === "text" ? "secondary" : "ghost"}
-          onClick={() => setViewMode("text")}
-          title="仅文本"
-        >
-          <FileText className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          size="sm"
-          variant={viewMode === "split" ? "secondary" : "ghost"}
-          onClick={() => setViewMode("split")}
-          title="文本 + 图表分屏"
-        >
-          <SplitSquareHorizontal className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          size="sm"
-          variant={viewMode === "chart" ? "secondary" : "ghost"}
-          onClick={() => setViewMode("chart")}
-          title="仅图表"
-        >
-          <BarChart3 className="h-3.5 w-3.5" />
-        </Button>
-      </div>
+      <DataViewSwitch value={viewMode} onChange={setViewMode} />
 
       <div className="ml-auto flex flex-wrap items-center gap-2">
         <div className="relative w-40 sm:w-48">

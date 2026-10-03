@@ -43,7 +43,7 @@ export function SymbolsPanel() {
       <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
         <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">符号</span>
         {loadedElfPath && (
-          <span className="truncate font-mono text-[10px] text-muted-foreground" title={loadedElfPath}>
+          <span className="truncate font-mono text-[11px] text-muted-foreground" title={loadedElfPath}>
             {loadedElfPath.split(/[\\/]/).pop()}
           </span>
         )}
@@ -54,7 +54,7 @@ export function SymbolsPanel() {
           type="button"
           onClick={() => setTab("functions")}
           className={cn(
-            "flex-1 rounded-full px-2 py-1 text-[11px] transition-colors",
+            "flex-1 rounded-full px-2 py-1 text-xs transition-colors",
             tab === "functions" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
           )}
         >
@@ -64,7 +64,7 @@ export function SymbolsPanel() {
           type="button"
           onClick={() => setTab("variables")}
           className={cn(
-            "flex-1 rounded-full px-2 py-1 text-[11px] transition-colors",
+            "flex-1 rounded-full px-2 py-1 text-xs transition-colors",
             tab === "variables" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
           )}
         >
@@ -116,7 +116,7 @@ export function SymbolsPanel() {
                   <span className="flex-1 truncate" title={sym.name}>
                     {sym.name}
                   </span>
-                  <span className="font-mono text-[10px] text-muted-foreground">{formatHex(sym.address)}</span>
+                  <span className="font-mono text-[11px] text-muted-foreground">{formatHex(sym.address)}</span>
                 </div>
               );
             })}

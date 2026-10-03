@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useProbeStore } from "@/stores/probeStore";
 import { useFlashStore } from "@/stores/flashStore";
 import { useLogStore } from "@/stores/logStore";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { save } from "@tauri-apps/plugin-dialog";
+import { useFirmwareFile } from "./useFirmwareFile";
 import {
   flashFirmware,
   eraseChip,
@@ -32,7 +33,6 @@ export function FlashToolbar() {
   const connected = useProbeStore((state) => state.connected);
   const {
     firmwarePath,
-    setFirmwarePath,
     flashing,
     setFlashing,
     setProgress,
@@ -46,7 +46,6 @@ export function FlashToolbar() {
   } = useFlashStore(
     useShallow((state) => ({
       firmwarePath: state.firmwarePath,
-      setFirmwarePath: state.setFirmwarePath,
       flashing: state.flashing,
       setFlashing: state.setFlashing,
       setProgress: state.setProgress,
@@ -61,6 +60,7 @@ export function FlashToolbar() {
   );
   const addLog = useLogStore((state) => state.addLog);
   const [eraseDialogOpen, setEraseDialogOpen] = useState(false);
+  const { openFirmwareDialog } = useFirmwareFile();
 
   useEffect(() => {
     const unlisten = listen<FlashProgressEvent>("flash-progress", (event) => {
@@ -73,33 +73,6 @@ export function FlashToolbar() {
       unlisten.then((fn) => fn());
     };
   }, [setProgress, addLog]);
-
-  const handleOpenFile = async () => {
-    const file = await open({
-      multiple: false,
-      filters: [
-        { name: "固件文件", extensions: ["hex", "bin", "elf", "axf", "out", "ihex"] },
-        { name: "所有文件", extensions: ["*"] },
-      ],
-    });
-
-    if (file) {
-      setFirmwarePath(file);
-      // 获取文件信息
-      try {
-        const fileInfo = await getFirmwareInfo(file);
-        if (fileInfo.exists) {
-          setFirmwareSize(fileInfo.size);
-          const sizeKB = (fileInfo.size / 1024).toFixed(1);
-          addLog("info", `已选择固件文件: ${file.split(/[\\/]/).pop()} (${sizeKB} KB)`);
-        } else {
-          addLog("warn", `已选择固件文件: ${file} (文件不存在)`);
-        }
-      } catch {
-        addLog("info", `已选择固件文件: ${file}`);
-      }
-    }
-  };
 
   const handleSaveProject = async () => {
     const path = await save({
@@ -253,7 +226,7 @@ export function FlashToolbar() {
           className="h-8 w-8"
           icon={<FolderOpen className="h-4 w-4" />}
           tooltip="打开固件文件"
-          onClick={handleOpenFile}
+          onClick={openFirmwareDialog}
         />
         <TooltipButton
           variant="ghost"

@@ -119,7 +119,7 @@ export function LocalsPanel() {
       <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
         <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
           全局变量
-          <span className="ml-2 normal-case tracking-normal text-[10px] text-muted-foreground/80">
+          <span className="ml-2 normal-case tracking-normal text-[11px] text-muted-foreground/80">
             （DWARF 类型 / 函数局部变量待后续）
           </span>
         </span>
@@ -127,7 +127,7 @@ export function LocalsPanel() {
           type="button"
           onClick={refreshExpanded}
           disabled={busy || state !== "halted" || expanded.size === 0}
-          className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+          className="flex items-center gap-1 rounded-full px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
           title="刷新已展开变量"
         >
           <RefreshCw className={`h-3 w-3 ${busy ? "animate-spin" : ""}`} />
@@ -185,17 +185,17 @@ export function LocalsPanel() {
                     <span className="flex-1 truncate" title={sym.name}>
                       {sym.name}
                     </span>
-                    <span className="font-mono text-[10px] text-muted-foreground">
+                    <span className="font-mono text-[11px] text-muted-foreground">
                       {formatHex(sym.address)} · {sym.size}B
                     </span>
                     {value && !isExpanded && (
-                      <span className="font-mono text-[10px] text-foreground">
+                      <span className="font-mono text-[11px] text-foreground">
                         {bytesAsU32Le(value.bytes) ?? formatBytesAsHex(value.bytes.slice(0, 4)) + "..."}
                       </span>
                     )}
                   </div>
                   {isExpanded && (
-                    <div className="ml-5 pb-1 font-mono text-[10px] text-muted-foreground">
+                    <div className="ml-5 pb-1 font-mono text-[11px] text-muted-foreground">
                       {state !== "halted" ? (
                         <span className="italic">需 halt 后才能读取</span>
                       ) : value ? (

@@ -154,7 +154,7 @@ export function SerialDisplayWidgetControl({
             <div className="h-full bg-primary transition-[width]" style={{ width: `${percent}%` }} />
           </div>
         )}
-        <div className="flex justify-between text-[11px] text-muted-foreground">
+        <div className="flex justify-between text-xs text-muted-foreground">
           <span>{widget.min}</span>
           <span>{widget.channel ? `通道 ${widget.channel}` : "未绑定通道"}</span>
           <span>{widget.max}</span>
@@ -172,7 +172,7 @@ export function SerialDisplayWidgetControl({
           {Number.isFinite(value) ? value : "--"}
           <span className="ml-1 text-base font-normal text-muted-foreground">{widget.unit}</span>
         </div>
-        <div className="mt-2 text-[11px] text-muted-foreground">
+        <div className="mt-2 text-xs text-muted-foreground">
           {widget.channel ? `通道 ${widget.channel}` : "未绑定通道"}
         </div>
       </div>

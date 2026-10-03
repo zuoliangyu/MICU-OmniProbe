@@ -77,7 +77,7 @@ export function SerialSendWidgetEditor({
               className="w-full resize-y rounded-[14px] border border-input bg-background px-3 py-2 font-mono text-xs outline-none focus:ring-2 focus:ring-ring"
               placeholder={"AT\nAT+GMR"}
             />
-            <p className="text-[11px] text-muted-foreground">每行一条命令，空行自动忽略。</p>
+            <p className="text-xs text-muted-foreground">每行一条命令，空行自动忽略。</p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor={`${widget.id}-interval`}>命令间隔 (ms)</Label>
@@ -131,7 +131,7 @@ export function SerialSendWidgetEditor({
             }
             className="font-mono"
           />
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             {widget.type === "joystick" ? (
               <>
                 使用 {"{x}"} 和 {"{y}"} 表示摇杆坐标。
@@ -222,7 +222,7 @@ export function SerialSendWidgetEditor({
             <div className="flex items-end justify-between rounded-lg border border-border/60 px-3 py-2">
               <div>
                 <Label htmlFor={`${widget.id}-recenter`}>松手回中</Label>
-                <p className="text-[11px] text-muted-foreground">松手后发送中心坐标。</p>
+                <p className="text-xs text-muted-foreground">松手后发送中心坐标。</p>
               </div>
               <Switch
                 id={`${widget.id}-recenter`}
@@ -280,7 +280,7 @@ export function SerialSendWidgetControl({
           <Send className="mr-2 h-4 w-4" />
           {running ? "正在执行…" : widget.label}
         </Button>
-        <div className="text-center text-[11px] text-muted-foreground">
+        <div className="text-center text-xs text-muted-foreground">
           {commands.length} 条命令 · 间隔 {widget.intervalMs}ms
         </div>
       </div>
@@ -343,7 +343,7 @@ export function SerialSendWidgetControl({
           onKeyUp={(event) => commitValue(Number(event.currentTarget.value))}
           className="h-2 w-full cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-50"
         />
-        <div className="flex justify-between text-[11px] text-muted-foreground">
+        <div className="flex justify-between text-xs text-muted-foreground">
           <span>{widget.min}</span>
           <span>{widget.sendMode === "continuous" ? "连续发送 · 100ms 节流" : "松手发送"}</span>
           <span>{widget.max}</span>
@@ -367,7 +367,7 @@ export function SerialSendWidgetControl({
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <span className="font-medium text-foreground">{widget.label}</span>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             步长 {widget.step} · {widget.min}～{widget.max}
           </span>
         </div>
@@ -501,7 +501,7 @@ export function SerialSendWidgetControl({
             style={{ left: `${left}%`, top: `${top}%` }}
           />
         </div>
-        <div className="text-center text-[11px] text-muted-foreground">
+        <div className="text-center text-xs text-muted-foreground">
           {widget.sendMode === "continuous" ? "连续发送 · 100ms 节流" : "松手发送"}
           {widget.recenter ? " · 松手回中" : ""}
         </div>

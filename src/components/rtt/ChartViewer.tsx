@@ -562,7 +562,7 @@ export function ChartViewer({
             <Button size="sm" variant="outline" className="gap-1">
               <Settings2 className="h-3.5 w-3.5" />
               通道
-              <span className="rounded-full bg-secondary px-1.5 text-[10px] text-secondary-foreground">
+              <span className="rounded-full bg-secondary px-1.5 text-[11px] text-secondary-foreground">
                 {seriesInspectorEntries.length}
               </span>
             </Button>

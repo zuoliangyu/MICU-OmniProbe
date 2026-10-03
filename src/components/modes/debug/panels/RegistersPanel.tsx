@@ -59,7 +59,7 @@ export function RegistersPanel() {
           disabled={!canRefresh}
         >
           <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-          <span className="text-[11px]">刷新</span>
+          <span className="text-xs">刷新</span>
         </Button>
       </div>
 
@@ -84,7 +84,7 @@ export function RegistersPanel() {
             </tbody>
           </table>
           {staleAt && (
-            <div className="px-2 pt-2 text-[10px] text-muted-foreground">
+            <div className="px-2 pt-2 text-[11px] text-muted-foreground">
               更新于 {new Date(staleAt).toLocaleTimeString()}
             </div>
           )}

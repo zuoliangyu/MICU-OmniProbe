@@ -80,7 +80,7 @@ export function SerialVisualizationWidgetEditor({
             </div>
           ))}
           {widget.channels.length === 0 && (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {widget.type === "fft-chart" ? "留空时跟随图形工作台中已启用的通道。" : "添加一个或多个 Y 通道。"}
             </p>
           )}
@@ -114,7 +114,7 @@ export function SerialVisualizationWidgetEditor({
             value={widget.pointLimit}
             onChange={(event) => onChange({ ...widget, pointLimit: Number(event.target.value) })}
           />
-          <p className="text-[11px] text-muted-foreground">使用波形解析缓存中的最近 10–2000 个点。</p>
+          <p className="text-xs text-muted-foreground">使用波形解析缓存中的最近 10–2000 个点。</p>
         </div>
       )}
 
@@ -266,14 +266,12 @@ export function SerialVisualizationWidgetEditor({
                   </div>
                 ))}
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 加速度单位可为 g 或 m/s²，但三个轴必须一致；设备静止时可在运行模式点击“静止校准”。
               </p>
             </>
           )}
-          <p className="text-[11px] text-muted-foreground">
-            按 X=Roll、Y=Pitch、Z=Yaw 映射；运行模式可用当前姿态归零。
-          </p>
+          <p className="text-xs text-muted-foreground">按 X=Roll、Y=Pitch、Z=Yaw 映射；运行模式可用当前姿态归零。</p>
         </div>
       )}
     </>
@@ -323,7 +321,7 @@ function SerialSignalPreview({
     <div className="flex h-full min-h-0 flex-col">
       <div className="mb-2 flex items-center gap-2">
         <span className="text-sm font-medium">{widget.label}</span>
-        <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] uppercase">{domain}</span>
+        <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] uppercase">{domain}</span>
         {showWorkspaceActions && (
           <div className="ml-auto flex gap-1">
             <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onOpenChart} title="打开图形工作台">
@@ -410,7 +408,7 @@ export function SerialVisualizationWidgetControl({
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
           <span className="font-medium text-foreground">{widget.label}</span>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {`${widget.xChannel || "X"} / ${widget.yChannel || "Y"}`}· 最近 {widget.pointLimit} 点
           </span>
         </div>

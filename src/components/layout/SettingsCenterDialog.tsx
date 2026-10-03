@@ -327,7 +327,7 @@ export default function SettingsCenterDialog({
                                 ))}
                               </div>
                               {active && (
-                                <span className="rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-secondary-foreground shadow-sm">
+                                <span className="rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-medium text-secondary-foreground shadow-sm">
                                   当前
                                 </span>
                               )}
@@ -511,7 +511,7 @@ function BackgroundModeCard({ mode, title, description, active, onClick }: Backg
     >
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="text-xs font-medium text-foreground">{title}</span>
-        <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+        <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
           {mode === "default" ? "Default" : "Image"}
         </span>
       </div>

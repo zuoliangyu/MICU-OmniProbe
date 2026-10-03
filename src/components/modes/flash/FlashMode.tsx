@@ -9,25 +9,16 @@
 import { useState, useEffect } from "react";
 import { FileCode } from "lucide-react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { useFlashStore } from "@/stores/flashStore";
 import { useLogStore } from "@/stores/logStore";
 import { cn } from "@/lib/utils";
 import { LogPanel } from "@/components/log/LogPanel";
 import { FlashToolbar } from "./FlashToolbar";
 import { FlashContent } from "./FlashContent";
-
-// Firmware file extensions
-const FIRMWARE_EXTENSIONS = [".hex", ".bin", ".elf", ".axf", ".out", ".ihex"];
-
-// Check if file is a firmware file
-function isFirmwareFile(path: string): boolean {
-  const lowerPath = path.toLowerCase();
-  return FIRMWARE_EXTENSIONS.some((ext) => lowerPath.endsWith(ext));
-}
+import { isFirmwareFile, useFirmwareFile } from "./useFirmwareFile";
 
 export function FlashMode() {
   const [isDragging, setIsDragging] = useState(false);
-  const setFirmwarePath = useFlashStore((state) => state.setFirmwarePath);
+  const { selectFirmware } = useFirmwareFile();
   const addLog = useLogStore((state) => state.addLog);
 
   // Listen for file drag-drop events
@@ -48,9 +39,7 @@ export function FlashMode() {
 
         if (firmwareFiles.length > 0) {
           // Use the first firmware file
-          const firmwarePath = firmwareFiles[0];
-          setFirmwarePath(firmwarePath);
-          addLog("info", `已选择固件文件: ${firmwarePath.split(/[\\/]/).pop()}`);
+          await selectFirmware(firmwareFiles[0]);
 
           if (firmwareFiles.length > 1) {
             addLog("warn", `检测到多个固件文件，仅使用第一个`);
@@ -64,7 +53,7 @@ export function FlashMode() {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [setFirmwarePath, addLog]);
+  }, [selectFirmware, addLog]);
 
   return (
     <div

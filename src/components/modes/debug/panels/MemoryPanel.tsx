@@ -101,7 +101,7 @@ export function MemoryPanel() {
           disabled={!attached || loading}
         >
           <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-          <span className="text-[11px]">读取</span>
+          <span className="text-xs">读取</span>
         </Button>
       </div>
 

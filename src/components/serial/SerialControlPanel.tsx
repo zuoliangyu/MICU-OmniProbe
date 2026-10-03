@@ -8,7 +8,22 @@ import {
 } from "react";
 import { open } from "@tauri-apps/plugin-shell";
 import {
+  Activity,
+  AudioWaveform,
+  Box,
+  ChevronsUpDown,
+  CircleDot,
   CircleHelp,
+  Gamepad2,
+  Gauge,
+  Hash,
+  ListOrdered,
+  MousePointerClick,
+  ScrollText,
+  SlidersHorizontal,
+  Spline,
+  TextCursorInput,
+  ToggleRight,
   Download,
   ExternalLink,
   GripHorizontal,
@@ -22,10 +37,10 @@ import {
   Pin,
   PinOff,
   Play,
-  Plus,
   Settings2,
   Trash2,
   Upload,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -114,6 +129,25 @@ function initialRuntimeValues(panel: SerialControlPanelConfig) {
     )
   ) as Record<string, RuntimeValue>;
 }
+
+/** 组件库里每种组件的识别图标，避免全部是同一个「+」难以扫读 */
+const WIDGET_PALETTE_ICONS: Record<SerialControlWidgetType, LucideIcon> = {
+  button: MousePointerClick,
+  toggle: ToggleRight,
+  slider: SlidersHorizontal,
+  input: TextCursorInput,
+  stepper: ChevronsUpDown,
+  joystick: Gamepad2,
+  sequence: ListOrdered,
+  value: Hash,
+  indicator: CircleDot,
+  gauge: Gauge,
+  "serial-log": ScrollText,
+  "yt-chart": Activity,
+  "fft-chart": AudioWaveform,
+  "xy-chart": Spline,
+  "imu-3d": Box,
+};
 
 export function SerialControlPanel({
   sendPayload = sendSerialPayload,
@@ -527,7 +561,7 @@ export function SerialControlPanel({
         <div className="flex items-start gap-2 border-b border-border/60 pb-3">
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">{selectedWidget.label}</div>
-            <div className="text-[11px] text-muted-foreground">{selectedWidget.type}</div>
+            <div className="text-xs text-muted-foreground">{selectedWidget.type}</div>
           </div>
           {widgetInputHelp && (
             <Popover>
@@ -641,7 +675,7 @@ export function SerialControlPanel({
         </Select>
         <span
           className={cn(
-            "rounded-full px-2.5 py-1 text-[11px] font-medium",
+            "rounded-full px-2.5 py-1 text-xs font-medium",
             connected ? "bg-emerald-500/12 text-emerald-700" : "bg-red-500/12 text-red-600"
           )}
         >
@@ -725,30 +759,33 @@ export function SerialControlPanel({
         {editing && paletteOpen && (
           <aside className="w-52 shrink-0 overflow-y-auto rounded-[18px] border border-border/60 bg-white/75 p-3">
             <div className="text-sm font-medium">组件库</div>
-            <div className="mt-1 text-[11px] text-muted-foreground">拖入画布，或点击直接添加。</div>
+            <div className="mt-1 text-xs text-muted-foreground">拖入画布，或点击直接添加。</div>
             <div className="mt-4 space-y-4">
               {SERIAL_CONTROL_WIDGET_GROUPS.map((group) => (
                 <div key={group.title}>
-                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                     {group.title}
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    {group.items.map(({ type, label }) => (
-                      <button
-                        key={type}
-                        type="button"
-                        draggable
-                        onDragStart={() => {
-                          setDraggedType(type);
-                        }}
-                        onDragEnd={() => setDraggedType(null)}
-                        onClick={() => addWidget(type)}
-                        className="flex min-h-16 cursor-grab flex-col items-center justify-center rounded-xl border border-border/60 bg-muted/30 px-2 text-center text-[11px] hover:border-primary/60 hover:bg-primary/5 active:cursor-grabbing"
-                      >
-                        <Plus className="mb-1 h-3.5 w-3.5" />
-                        {label}
-                      </button>
-                    ))}
+                    {group.items.map(({ type, label }) => {
+                      const PaletteIcon = WIDGET_PALETTE_ICONS[type];
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          draggable
+                          onDragStart={() => {
+                            setDraggedType(type);
+                          }}
+                          onDragEnd={() => setDraggedType(null)}
+                          onClick={() => addWidget(type)}
+                          className="flex min-h-16 cursor-grab flex-col items-center justify-center rounded-xl border border-border/60 bg-muted/30 px-2 text-center text-xs hover:border-primary/60 hover:bg-primary/5 active:cursor-grabbing"
+                        >
+                          <PaletteIcon className="mb-1.5 h-4 w-4 text-primary" />
+                          {label}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               ))}
@@ -830,7 +867,7 @@ export function SerialControlPanel({
                           <span className="text-xs font-medium text-muted-foreground">
                             {getSerialControlWidgetTypeLabel(widget.type)}
                           </span>
-                          <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px]">
+                          <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">
                             {widget.type === "serial-log"
                               ? widget.direction.toUpperCase()
                               : widget.type === "gauge" ||
@@ -919,7 +956,7 @@ export function SerialControlPanel({
                 >
                   <GripHorizontal className="h-4 w-4 text-muted-foreground" />
                   组件属性
-                  <span className="ml-auto text-[11px] font-normal text-muted-foreground">拖动</span>
+                  <span className="ml-auto text-xs font-normal text-muted-foreground">拖动</span>
                 </button>
               ) : (
                 <div className="min-w-0 flex-1 px-1 py-1 text-sm font-medium">组件属性</div>

@@ -1,6 +1,7 @@
 import { Sidebar } from "./components/layout/Sidebar";
 import { TopBar } from "./components/layout/TopBar";
 import { ModeSwitch } from "./components/layout/ModeSwitch";
+import { WorkspaceErrorBoundary } from "./components/layout/WorkspaceErrorBoundary";
 import { WORKSPACE_BY_MODE } from "./components/modes";
 import { SerialSidebar } from "./components/serial";
 import { BleSidebar } from "./components/bluetooth";
@@ -260,9 +261,11 @@ function MainApp() {
         >
           <div className="mode-stack relative min-w-0 overflow-hidden rounded-[14px]">
             <div key={mode} className="mode-stage h-full">
-              <Suspense fallback={<WorkspaceLoading />}>
-                <WorkspaceView />
-              </Suspense>
+              <WorkspaceErrorBoundary label={WORKSPACE_BY_MODE[mode].label}>
+                <Suspense fallback={<WorkspaceLoading />}>
+                  <WorkspaceView />
+                </Suspense>
+              </WorkspaceErrorBoundary>
             </div>
           </div>
 
@@ -290,7 +293,13 @@ function MainApp() {
                 <span className="h-10 w-px bg-border transition-colors group-hover:bg-primary group-focus-visible:bg-primary" />
               </button>
               <div className="ide-inspector min-h-0 min-w-0 overflow-hidden">
-                {mode === "serial" ? <SerialSidebar /> : mode === "bluetooth" ? <BleSidebar /> : <Sidebar />}
+                {/* 烧录 / RTT / 调试共用探针侧栏，key 只按侧栏种类区分，避免切换时重挂载 */}
+                <WorkspaceErrorBoundary
+                  key={mode === "serial" || mode === "bluetooth" ? mode : "probe"}
+                  label="配置检查器"
+                >
+                  {mode === "serial" ? <SerialSidebar /> : mode === "bluetooth" ? <BleSidebar /> : <Sidebar />}
+                </WorkspaceErrorBoundary>
               </div>
             </>
           )}
@@ -307,7 +316,7 @@ function MainApp() {
 function WorkspaceLoading() {
   return (
     <div className="flex h-full items-center justify-center">
-      <Cpu className="h-5 w-5 animate-pulse text-[var(--text-muted)]" aria-label="加载工作台" />
+      <Cpu className="h-5 w-5 animate-pulse text-muted-foreground" aria-label="加载工作台" />
     </div>
   );
 }

@@ -404,15 +404,15 @@ export function BleSidebar() {
                           <Bluetooth className="h-3.5 w-3.5 text-primary" />
                           <span className="truncate text-xs font-medium">{device.name || "(无名)"}</span>
                         </div>
-                        <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                        <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
                           {device.address || device.id}
                         </div>
                       </div>
                       <div className="shrink-0 text-right">
                         {device.rssi !== null && (
-                          <div className="text-[10px] text-muted-foreground">{device.rssi} dBm</div>
+                          <div className="text-[11px] text-muted-foreground">{device.rssi} dBm</div>
                         )}
-                        {isConnected && <div className="text-[10px] font-medium text-primary">已连接</div>}
+                        {isConnected && <div className="text-[11px] font-medium text-primary">已连接</div>}
                       </div>
                     </button>
                   );
@@ -436,7 +436,7 @@ export function BleSidebar() {
                 ) : (
                   services.map((service) => (
                     <div key={service.uuid} className="space-y-1">
-                      <div className="truncate font-mono text-[10px] text-muted-foreground">
+                      <div className="truncate font-mono text-[11px] text-muted-foreground">
                         {shortUuid(service.uuid)}
                       </div>
                       <div className="space-y-1 pl-2">
@@ -529,7 +529,7 @@ function SppPortsCard({ ports, loading, busy, onRefresh, onConnect }: SppPortsCa
         </div>
       </CardHeader>
       <CardContent className="space-y-1.5">
-        <div className="rounded-[18px] border border-dashed border-border/70 bg-white/40 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+        <div className="rounded-[18px] border border-dashed border-border/70 bg-white/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
           SPP 设备需先在系统蓝牙设置中**配对**，配对后才会被映射成虚拟
           COM；点击下方按钮会用串口模块连接并跳转到串口工作台。
         </div>
@@ -549,7 +549,7 @@ function SppPortsCard({ ports, loading, busy, onRefresh, onConnect }: SppPortsCa
                   <span className="truncate text-xs font-medium">{port.name}</span>
                 </div>
                 {port.description && (
-                  <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{port.description}</div>
+                  <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{port.description}</div>
                 )}
               </div>
               <Button
@@ -611,11 +611,11 @@ function CharRow({ char, isNotify, isWrite, onSelectNotify, onSelectWrite }: Cha
   return (
     <div
       className={cn(
-        "rounded-[14px] border px-2 py-1.5 text-[11px]",
+        "rounded-[14px] border px-2 py-1.5 text-xs",
         isNotify || isWrite ? "border-primary/60 bg-primary/5" : "border-border/60 bg-white/55"
       )}
     >
-      <div className="truncate font-mono text-[10px] text-foreground">{shortUuid(char.uuid)}</div>
+      <div className="truncate font-mono text-[11px] text-foreground">{shortUuid(char.uuid)}</div>
       <div className="mt-1 flex items-center gap-1">
         {char.properties.read && <Tag>R</Tag>}
         {char.properties.write && <Tag>W</Tag>}
@@ -627,7 +627,7 @@ function CharRow({ char, isNotify, isWrite, onSelectNotify, onSelectWrite }: Cha
         <Button
           size="sm"
           variant={isNotify ? "default" : "ghost"}
-          className="h-6 gap-1 rounded-full px-2 text-[10px]"
+          className="h-6 gap-1 rounded-full px-2 text-[11px]"
           onClick={onSelectNotify}
           disabled={!canNotify}
         >
@@ -637,7 +637,7 @@ function CharRow({ char, isNotify, isWrite, onSelectNotify, onSelectWrite }: Cha
         <Button
           size="sm"
           variant={isWrite ? "default" : "ghost"}
-          className="h-6 gap-1 rounded-full px-2 text-[10px]"
+          className="h-6 gap-1 rounded-full px-2 text-[11px]"
           onClick={onSelectWrite}
           disabled={!canWrite}
         >
@@ -651,7 +651,7 @@ function CharRow({ char, isNotify, isWrite, onSelectNotify, onSelectWrite }: Cha
 
 function Tag({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded bg-secondary px-1.5 py-0.5 text-[9px] font-medium text-secondary-foreground">
+    <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] font-medium text-secondary-foreground">
       {children}
     </span>
   );

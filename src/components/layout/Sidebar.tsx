@@ -161,6 +161,15 @@ export function Sidebar() {
     }
   };
 
+  // 连接按钮不可用时直接告诉用户还缺哪一步，而不是只给一个灰按钮
+  const missingRequirement = !selectedProbe
+    ? probes.length === 0
+      ? "未检测到探针，请插入后点击刷新"
+      : "请先选择调试探针"
+    : !selectedChip
+      ? "请先搜索并选择目标芯片"
+      : null;
+
   return (
     <aside className="surface-sidebar flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[32px]">
       <div className="min-h-0 flex-1 space-y-0 overflow-y-auto p-4">
@@ -441,7 +450,7 @@ export function Sidebar() {
               {connectionInfo.probe_serial && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">DAP序列号:</span>
-                  <span className="font-mono text-[10px]">{connectionInfo.probe_serial}</span>
+                  <span className="font-mono text-[11px]">{connectionInfo.probe_serial}</span>
                 </div>
               )}
               <div className="flex justify-between">
@@ -480,32 +489,37 @@ export function Sidebar() {
             选择探针和芯片后，点击工具栏「连接」附加调试会话
           </p>
         ) : (
-          <Button
-            className={cn(
-              "w-full transition-all",
-              connected ? "bg-red-500 hover:bg-red-600 text-white" : "bg-primary hover:bg-primary/90",
-              loading && "animate-pulse"
+          <>
+            {!connected && !loading && missingRequirement && (
+              <p className="pb-2 text-center text-xs text-muted-foreground">{missingRequirement}</p>
             )}
-            onClick={connected ? handleDisconnect : handleConnect}
-            disabled={loading || (!connected && (!selectedProbe || !selectedChip))}
-          >
-            {loading ? (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                {connected ? "断开中..." : "连接中..."}
-              </>
-            ) : connected ? (
-              <>
-                <Unplug className="h-4 w-4 mr-2" />
-                断开连接
-              </>
-            ) : (
-              <>
-                <Plug className="h-4 w-4 mr-2" />
-                连接设备
-              </>
-            )}
-          </Button>
+            <Button
+              className={cn(
+                "w-full transition-all",
+                connected ? "bg-red-500 hover:bg-red-600 text-white" : "bg-primary hover:bg-primary/90",
+                loading && "animate-pulse"
+              )}
+              onClick={connected ? handleDisconnect : handleConnect}
+              disabled={loading || (!connected && (!selectedProbe || !selectedChip))}
+            >
+              {loading ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  {connected ? "断开中..." : "连接中..."}
+                </>
+              ) : connected ? (
+                <>
+                  <Unplug className="h-4 w-4 mr-2" />
+                  断开连接
+                </>
+              ) : (
+                <>
+                  <Plug className="h-4 w-4 mr-2" />
+                  连接设备
+                </>
+              )}
+            </Button>
+          </>
         )}
       </div>
     </aside>

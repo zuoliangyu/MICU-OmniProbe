@@ -27,9 +27,6 @@ interface DebugToolbarProps {
 
 export function DebugToolbar({ onResetLayout }: DebugToolbarProps) {
   const state = useDebugStore((s) => s.state);
-  const haltReason = useDebugStore((s) => s.haltReason);
-  const pc = useDebugStore((s) => s.pc);
-  const loadedElfPath = useDebugStore((s) => s.loadedElfPath);
   const setDebugState = useDebugStore((s) => s.setState);
   const setLoadedElfPath = useDebugStore((s) => s.setLoadedElfPath);
   const setSymbols = useDebugStore((s) => s.setSymbols);
@@ -47,32 +44,6 @@ export function DebugToolbar({ onResetLayout }: DebugToolbarProps) {
   const attached = state !== "detached";
   const halted = state === "halted";
   const running = state === "running";
-
-  const elfFileName = loadedElfPath?.split(/[\\/]/).pop() ?? "未加载 ELF";
-
-  const haltReasonText: Record<string, string> = {
-    manual: "手动",
-    breakpoint: "断点",
-    step: "单步",
-    exception: "异常",
-    watchpoint: "观察点",
-    unknown: "未知",
-  };
-
-  const statusText = (() => {
-    switch (state) {
-      case "detached":
-        return "未连接";
-      case "attached":
-        return "已附加";
-      case "running":
-        return "运行中";
-      case "halted": {
-        const reason = haltReason ? (haltReasonText[haltReason] ?? haltReason) : null;
-        return `已停止${reason ? ` · ${reason}` : ""}${pc !== null ? ` · 0x${pc.toString(16).padStart(8, "0")}` : ""}`;
-      }
-    }
-  })();
 
   // 把 IPC 返回的 core 状态写回 store
   const applyCoreState = (core: DebugCoreState | null, fallback: "attached" = "attached") => {
@@ -304,18 +275,6 @@ export function DebugToolbar({ onResetLayout }: DebugToolbarProps) {
       <div className="mx-1 h-6 w-px bg-border/60" />
 
       <ViewMenu onResetLayout={onResetLayout} />
-
-      <div className="ml-auto flex min-w-0 items-center gap-3 text-xs text-muted-foreground">
-        <span className="truncate font-mono">{elfFileName}</span>
-        <div className="flex items-center gap-1.5">
-          <div
-            className={`h-2 w-2 rounded-full ${
-              halted ? "bg-yellow-500" : running ? "bg-green-500" : "bg-muted-foreground"
-            }`}
-          />
-          <span>{statusText}</span>
-        </div>
-      </div>
     </div>
   );
 }

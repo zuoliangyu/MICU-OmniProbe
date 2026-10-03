@@ -243,6 +243,15 @@ export function SerialSidebar() {
     .filter((line) => line.direction === "rx")
     .slice(-20)
     .map(({ text, rawData }) => ({ text, rawData }));
+  // 连接按钮不可用时直接说明缺少哪项配置
+  const missingRequirement =
+    activeSourceType === "local" && !localConfig.port
+      ? ports.length === 0
+        ? "未检测到串口，请插入设备后点击刷新"
+        : "请先选择串口"
+      : activeSourceType === "udp" && (!udpConfig.local_host || !udpConfig.remote_host || udpConfig.remote_port < 1)
+        ? "请填写完整的 UDP 本地 / 远端地址"
+        : null;
 
   return (
     <aside className="surface-sidebar flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[32px]">
@@ -562,7 +571,7 @@ export function SerialSidebar() {
               <div className="flex items-center justify-between gap-2 pt-1">
                 <div className="space-y-0.5">
                   <label className="text-xs font-medium">断线自动重连</label>
-                  <p className="text-[11px] text-muted-foreground">读取出错时尝试重连 (1s 起，指数退避到 5s)</p>
+                  <p className="text-xs text-muted-foreground">读取出错时尝试重连 (1s 起，指数退避到 5s)</p>
                 </div>
                 <Switch
                   checked={tcpConfig.reconnect ?? false}
@@ -601,7 +610,7 @@ export function SerialSidebar() {
                   placeholder="9000"
                   disabled={connected}
                 />
-                <p className="mt-1 text-[11px] text-muted-foreground">填写 0 时由系统自动分配端口。</p>
+                <p className="mt-1 text-xs text-muted-foreground">填写 0 时由系统自动分配端口。</p>
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">远端地址</label>
@@ -787,7 +796,7 @@ export function SerialSidebar() {
                     onChange={(event) => setSimulationConfig({ noise: Number(event.target.value) })}
                     disabled={connected}
                   />
-                  <p className="mt-1 text-[11px] text-muted-foreground">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     {simulationConfig.preset === "imu6"
                       ? "输出字段：ax、ay、az（g）和 gx、gy、gz（°/s）"
                       : simulationConfig.preset === "imu3"
@@ -800,14 +809,14 @@ export function SerialSidebar() {
               )}
 
               {simulationConfig.preset === "filter-demo" && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   固定 200 Hz 采样，5 Hz 主信号 + 40 Hz 干扰，输出字段 signal。
                 </p>
               )}
 
               <div className="rounded-md bg-muted/60 p-2">
-                <p className="mb-1 text-[11px] text-muted-foreground">输出示例</p>
-                <code className="block break-all text-[11px] leading-4">{simulationPreview}</code>
+                <p className="mb-1 text-xs text-muted-foreground">输出示例</p>
+                <code className="block break-all text-xs leading-4">{simulationPreview}</code>
               </div>
             </CardContent>
           </Card>
@@ -949,18 +958,15 @@ export function SerialSidebar() {
 
       {inspectorTab === "connection" && (
         <div className="inspector-action-bar shrink-0">
+          {!connected && !connecting && missingRequirement && (
+            <p className="pb-2 text-center text-xs text-muted-foreground">{missingRequirement}</p>
+          )}
           <Button
             className={`w-full transition-all ${
               connected ? "bg-red-500 hover:bg-red-600 text-white" : "bg-primary hover:bg-primary/90"
             } ${connecting && "animate-pulse"}`}
             onClick={connected ? handleDisconnect : handleConnect}
-            disabled={
-              connecting ||
-              (!connected && activeSourceType === "local" && !localConfig.port) ||
-              (!connected &&
-                activeSourceType === "udp" &&
-                (!udpConfig.local_host || !udpConfig.remote_host || udpConfig.remote_port < 1))
-            }
+            disabled={connecting || (!connected && missingRequirement !== null)}
           >
             {connecting ? (
               <>

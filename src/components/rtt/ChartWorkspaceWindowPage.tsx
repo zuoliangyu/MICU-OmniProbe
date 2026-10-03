@@ -79,7 +79,7 @@ export function ChartWorkspaceWindowPage({ source }: ChartWorkspaceWindowPagePro
           <div className="text-sm font-medium text-foreground">
             {snapshot?.title ?? getChartWorkspaceWindowTitle(source)}
           </div>
-          <div className="text-[11px] text-muted-foreground">
+          <div className="text-xs text-muted-foreground">
             {snapshot?.subtitle ?? "独立窗口模式。主窗口继续负责接收与状态同步。"}
           </div>
         </div>

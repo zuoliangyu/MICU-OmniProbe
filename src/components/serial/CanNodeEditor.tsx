@@ -57,7 +57,7 @@ export function CanNodeEditor({ channels, onChannelsChange }: CanNodeEditorProps
                     <Waypoints className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-xs font-medium">{signal.name}</div>
-                      <div className="truncate font-mono text-[10px] text-muted-foreground">
+                      <div className="truncate font-mono text-[11px] text-muted-foreground">
                         bit {signal.can!.startBit} | {signal.can!.bitLength} ·{" "}
                         {signal.can!.byteOrder === "little" ? "Intel" : "Motorola"}
                       </div>

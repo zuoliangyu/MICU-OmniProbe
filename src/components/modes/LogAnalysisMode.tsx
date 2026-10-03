@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, Columns2, FileText, FileUp, Loader2, Search, Trash2, Waves } from "lucide-react";
+import { FileUp, Loader2, Search, Trash2, Waves } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DataViewSwitch } from "@/components/ui/segmented-control";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -364,26 +365,7 @@ export function LogAnalysisMode() {
           />
         </div>
 
-        <div className="flex items-center rounded-lg border border-border/60 p-0.5">
-          {(
-            [
-              ["text", FileText, "文本"],
-              ["split", Columns2, "分屏"],
-              ["chart", BarChart3, "图表"],
-            ] as const
-          ).map(([mode, Icon, label]) => (
-            <Button
-              key={mode}
-              size="sm"
-              variant={viewMode === mode ? "secondary" : "ghost"}
-              className="h-7 gap-1 px-2"
-              onClick={() => setViewMode(mode)}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {label}
-            </Button>
-          ))}
-        </div>
+        <DataViewSwitch value={viewMode} onChange={setViewMode} />
 
         {chartConfig.channels.length > 0 && (
           <Popover>
@@ -428,7 +410,7 @@ export function LogAnalysisMode() {
                     />
                     <span className="min-w-0 flex-1 truncate text-sm">{channel.name || channel.key}</span>
                     {channel.name !== channel.key && (
-                      <code className="max-w-24 truncate text-[11px] text-muted-foreground">{channel.key}</code>
+                      <code className="max-w-24 truncate text-xs text-muted-foreground">{channel.key}</code>
                     )}
                   </label>
                 ))}

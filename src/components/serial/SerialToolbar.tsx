@@ -2,10 +2,11 @@ import { useSerialStore } from "@/stores/serialStore";
 import { useLogStore } from "@/stores/logStore";
 import { stopSerial, startSerial, clearSerialBuffer } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
+import { DataViewSwitch, SegmentedControl, type SegmentedOption } from "@/components/ui/segmented-control";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { SerialLine } from "@/lib/serialTypes";
+import type { SerialLine, SerialTextViewMode } from "@/lib/serialTypes";
 import {
   Play,
   Square,
@@ -15,8 +16,6 @@ import {
   Search,
   FileText,
   SquareTerminal,
-  SplitSquareHorizontal,
-  BarChart3,
   Sparkles,
   SlidersHorizontal,
   Settings2,
@@ -51,6 +50,11 @@ const TIMESTAMP_FORMAT_PRESETS = [
   ["mm:ss.SSS", "分秒毫秒"],
   ["mm:ss", "分秒"],
 ] as const;
+
+const TEXT_VIEW_OPTIONS: readonly SegmentedOption<SerialTextViewMode>[] = [
+  { value: "log", label: "日志", icon: FileText, title: "按行显示的日志视图" },
+  { value: "terminal", label: "终端", icon: SquareTerminal, title: "支持 ANSI 与光标控制的终端视图" },
+];
 
 export function SerialToolbar() {
   const {
@@ -277,50 +281,13 @@ export function SerialToolbar() {
       </Button>
 
       <div className="mx-1 h-6 w-px bg-border" />
-      <div className="flex gap-1">
-        <Button
-          size="sm"
-          variant={textViewMode === "log" ? "secondary" : "ghost"}
-          onClick={() => setTextViewMode("log")}
-          className="gap-1"
-        >
-          <FileText className="h-3.5 w-3.5" />
-          日志
-        </Button>
-        <Button
-          size="sm"
-          variant={textViewMode === "terminal" ? "secondary" : "ghost"}
-          onClick={() => setTextViewMode("terminal")}
-          className="gap-1"
-        >
-          <SquareTerminal className="h-3.5 w-3.5" />
-          终端
-        </Button>
-        <Button
-          size="sm"
-          variant={viewMode === "text" ? "secondary" : "ghost"}
-          onClick={() => setViewMode("text")}
-          title="仅文本"
-        >
-          <FileText className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          size="sm"
-          variant={viewMode === "split" ? "secondary" : "ghost"}
-          onClick={() => setViewMode("split")}
-          title="文本 + 图表分屏"
-        >
-          <SplitSquareHorizontal className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          size="sm"
-          variant={viewMode === "chart" ? "secondary" : "ghost"}
-          onClick={() => setViewMode("chart")}
-          title="仅图表"
-        >
-          <BarChart3 className="h-3.5 w-3.5" />
-        </Button>
-      </div>
+      <SegmentedControl
+        value={textViewMode}
+        options={TEXT_VIEW_OPTIONS}
+        onChange={setTextViewMode}
+        aria-label="文本显示方式"
+      />
+      <DataViewSwitch value={viewMode} onChange={setViewMode} />
 
       <div className="ml-auto flex flex-wrap items-center gap-2">
         {textViewMode === "log" && (
@@ -496,7 +463,7 @@ export function SerialToolbar() {
                   <div className="space-y-2 rounded-xl border border-border/50 bg-background/55 p-2.5">
                     <div className="flex items-center justify-between gap-2 text-xs">
                       <span className="font-medium text-foreground">时间格式</span>
-                      <code className="text-[11px] text-muted-foreground">
+                      <code className="text-xs text-muted-foreground">
                         {formatTimestamp(TIMESTAMP_PREVIEW_TIME, timestampFormat)}
                       </code>
                     </div>
@@ -527,7 +494,7 @@ export function SerialToolbar() {
                       placeholder="例如 YYYY年MM月DD日 HH:mm:ss.SSS"
                       className="h-8 font-mono text-xs"
                     />
-                    <div className="text-[11px] leading-4 text-muted-foreground">
+                    <div className="text-xs leading-4 text-muted-foreground">
                       可用：YYYY 年、MM 月、DD 日、HH 时、mm 分、ss 秒、SSS 毫秒；留空使用默认格式。
                     </div>
                   </div>

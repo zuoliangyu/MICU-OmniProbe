@@ -169,7 +169,7 @@ export function TriggerSettingsPanel({
           <div className="flex items-center justify-between gap-2">
             <span
               className={cn(
-                "inline-flex items-center gap-1.5 text-[11px]",
+                "inline-flex items-center gap-1.5 text-xs",
                 captured ? "text-amber-600" : "text-muted-foreground"
               )}
             >
@@ -187,15 +187,15 @@ export function TriggerSettingsPanel({
           </div>
 
           {channels.length === 0 && (
-            <div className="text-[11px] leading-4 text-amber-600">尚未配置任何可见通道，触发无法工作。</div>
+            <div className="text-xs leading-4 text-amber-600">尚未配置任何可见通道，触发无法工作。</div>
           )}
           {channelMissing && (
-            <div className="text-[11px] leading-4 text-amber-600">
+            <div className="text-xs leading-4 text-amber-600">
               触发通道「{trigger.channelKey}」已不在当前通道列表中，请重新选择。
             </div>
           )}
 
-          <div className="text-[11px] leading-4 text-muted-foreground">
+          <div className="text-xs leading-4 text-muted-foreground">
             边沿条件只在数值穿越电平的那一刻成立，因此在电平附近抖动不会反复触发。
           </div>
         </>

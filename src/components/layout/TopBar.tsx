@@ -8,6 +8,8 @@ import { useAppStore } from "@/stores/appStore";
 import { useBluetoothStore } from "@/stores/bluetoothStore";
 import { useSerialStore } from "@/stores/serialStore";
 import { useControlPanelStore } from "@/stores/controlPanelStore";
+import { formatDebugStatus, useDebugStore } from "@/stores/debugStore";
+import { cn } from "@/lib/utils";
 import { TooltipWrapper } from "@/components/ui/tooltip-button";
 import { formatBytes } from "@/lib/formatters";
 import { SettingsCenterButton } from "./SettingsCenterButton";
@@ -34,6 +36,11 @@ export function TopBar({ inspectorOpen, onToggleInspector }: TopBarProps) {
   const bluetoothConnected = useBluetoothStore((state) => state.connected);
   const controlPanelSource = useControlPanelStore((state) => state.source);
   const firmwareFileName = firmwarePath?.split(/[\\/]/).pop();
+  const debugState = useDebugStore((state) => state.state);
+  const haltReason = useDebugStore((state) => state.haltReason);
+  const pc = useDebugStore((state) => state.pc);
+  const loadedElfPath = useDebugStore((state) => state.loadedElfPath);
+  const elfFileName = loadedElfPath?.split(/[\\/]/).pop();
   const { label, headerIcon: ModeIcon } = WORKSPACE_BY_MODE[mode];
   const connectionLabel =
     mode === "serial"
@@ -64,7 +71,7 @@ export function TopBar({ inspectorOpen, onToggleInspector }: TopBarProps) {
         </div>
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold">{label}</div>
-          <div className="ide-topbar-subtitle text-[11px] text-muted-foreground">MICU-OmniProbe</div>
+          <div className="ide-topbar-subtitle text-xs text-muted-foreground">MICU-OmniProbe</div>
         </div>
       </div>
 
@@ -82,6 +89,16 @@ export function TopBar({ inspectorOpen, onToggleInspector }: TopBarProps) {
             <div className="toolbar-chip flex min-w-0 items-center gap-1.5 px-2.5 py-1.5">
               <Activity className="h-3.5 w-3.5" />
               <span className="max-w-[150px] truncate text-xs">{selectedProbe.identifier}</span>
+            </div>
+          </TooltipWrapper>
+        )}
+        {mode === "debug" && (
+          <TooltipWrapper tooltip={loadedElfPath ?? "点击工具栏「加载 ELF…」加载固件符号"}>
+            <div className="toolbar-chip flex max-w-[220px] items-center gap-1.5 px-2.5 py-1.5">
+              <FileCode className="h-3.5 w-3.5 shrink-0" />
+              <span className={cn("truncate text-xs", !elfFileName && "text-muted-foreground")}>
+                {elfFileName ?? "未加载 ELF"}
+              </span>
             </div>
           </TooltipWrapper>
         )}
@@ -131,14 +148,38 @@ export function TopBar({ inspectorOpen, onToggleInspector }: TopBarProps) {
             RTT 就绪
           </span>
         )}
-        {mode !== "log-analysis" && (
+        {mode === "debug" ? (
+          // 调试工作台通过工具栏附加独立会话，不走 probeStore.connected，状态要看调试会话本身
           <span className="status-chip flex items-center gap-1.5">
-            <span className={connected ? "h-2 w-2 rounded-full bg-green-500" : "h-2 w-2 rounded-full bg-red-500"} />
-            <span className={connected ? "text-green-600" : "text-red-500"}>
-              {connectionLabel}
-              {connected ? "已连接" : "未连接"}
+            <span
+              className={cn(
+                "h-2 w-2 rounded-full",
+                debugState === "halted" ? "bg-yellow-500" : debugState === "detached" ? "bg-red-500" : "bg-green-500"
+              )}
+            />
+            <span
+              className={cn(
+                "font-mono",
+                debugState === "halted"
+                  ? "text-yellow-700"
+                  : debugState === "detached"
+                    ? "text-red-500"
+                    : "text-green-600"
+              )}
+            >
+              {formatDebugStatus(debugState, haltReason, pc)}
             </span>
           </span>
+        ) : (
+          mode !== "log-analysis" && (
+            <span className="status-chip flex items-center gap-1.5">
+              <span className={connected ? "h-2 w-2 rounded-full bg-green-500" : "h-2 w-2 rounded-full bg-red-500"} />
+              <span className={connected ? "text-green-600" : "text-red-500"}>
+                {connectionLabel}
+                {connected ? "已连接" : "未连接"}
+              </span>
+            </span>
+          )
         )}
       </div>
     </header>

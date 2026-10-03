@@ -627,7 +627,7 @@ export function SignalPlotCanvas({
               return (
                 <div
                   key={item.key}
-                  className="rounded-full border border-white/80 bg-white/88 px-3 py-1 text-[11px] shadow-sm backdrop-blur"
+                  className="rounded-full border border-white/80 bg-white/88 px-3 py-1 text-xs shadow-sm backdrop-blur"
                 >
                   <span
                     className="mr-2 inline-block h-2.5 w-2.5 rounded-full"
@@ -672,7 +672,7 @@ export function SignalPlotCanvas({
         {!onChartConfigChange && filterActive && (
           <span
             className={cn(
-              "pointer-events-none absolute bottom-3 right-3 rounded-full px-3 py-1 text-[11px] shadow-sm",
+              "pointer-events-none absolute bottom-3 right-3 rounded-full px-3 py-1 text-xs shadow-sm",
               filterRateMismatch ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
             )}
           >
@@ -683,7 +683,7 @@ export function SignalPlotCanvas({
 
       {onChartConfigChange && (
         <div className="shrink-0 border-t border-border/60 bg-secondary/70">
-          <div className="flex items-center gap-2 overflow-x-auto px-3 py-2 text-[11px] tabular-nums">
+          <div className="flex items-center gap-2 overflow-x-auto px-3 py-2 text-xs tabular-nums">
             <span className="shrink-0 rounded-lg border border-border/60 bg-white/80 px-2.5 py-2">
               <span className="text-muted-foreground">Δt </span>
               {formatDuration(sampleIntervalSec)}
@@ -691,7 +691,7 @@ export function SignalPlotCanvas({
             <Button
               size="sm"
               variant={chartConfig.sampleRateHz === 0 ? "default" : "outline"}
-              className="h-8 shrink-0 px-2.5 text-[11px]"
+              className="h-8 shrink-0 px-2.5 text-xs"
               onClick={() => updateChartConfig({ sampleRateHz: 0 })}
               title="按数据到达时间自动估算采样率"
             >
@@ -733,7 +733,7 @@ export function SignalPlotCanvas({
             <Button
               size="sm"
               variant={autoRange ? "default" : "outline"}
-              className="ml-auto h-8 shrink-0 gap-1 px-2.5 text-[11px]"
+              className="ml-auto h-8 shrink-0 gap-1 px-2.5 text-xs"
               onClick={handleReset}
               title="恢复 X/Y 自动范围"
               aria-label="自适应显示全部曲线"
@@ -742,7 +742,7 @@ export function SignalPlotCanvas({
               自适应
             </Button>
           </div>
-          <div className="flex items-center gap-3 px-3 pb-2 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-3 px-3 pb-2 text-xs text-muted-foreground">
             <span className="shrink-0">X 轴缩放</span>
             <input
               type="range"

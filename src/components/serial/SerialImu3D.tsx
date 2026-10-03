@@ -54,7 +54,7 @@ export function SerialImu3DControl({ widget, chartData, latestValues, onUpdate }
     <div className="serial-imu-container space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium text-foreground">{widget.label}</span>
-        <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground">
+        <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
           {widget.sourceMode === "imu6" ? "六轴融合" : "欧拉角直驱"}
         </span>
         <div className="ml-auto flex flex-wrap gap-2">
@@ -86,7 +86,7 @@ export function SerialImu3DControl({ widget, chartData, latestValues, onUpdate }
         </div>
       </div>
       {widget.sourceMode === "imu6" && (
-        <div className="text-[11px] text-muted-foreground">
+        <div className="text-xs text-muted-foreground">
           陀螺零偏：X {widget.gyroBiasX.toFixed(4)} · Y {widget.gyroBiasY.toFixed(4)} · Z {widget.gyroBiasZ.toFixed(4)}·
           无磁力计时 Yaw 会逐渐漂移
         </div>

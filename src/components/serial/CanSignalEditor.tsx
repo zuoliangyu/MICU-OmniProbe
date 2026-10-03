@@ -356,7 +356,7 @@ export function CanSignalEditor({ canBus, channels, onCanBusChange, onChannelsCh
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
-      <Label className="text-[11px] text-muted-foreground">{label}</Label>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
       {children}
     </div>
   );

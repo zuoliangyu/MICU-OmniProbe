@@ -101,7 +101,7 @@ export function BreakpointsPanel() {
           <Button
             size="sm"
             variant="ghost"
-            className="h-6 gap-1 rounded-full px-2 text-[10px]"
+            className="h-6 gap-1 rounded-full px-2 text-[11px]"
             onClick={handleClearAll}
             disabled={!attached || busy}
           >
@@ -129,7 +129,7 @@ export function BreakpointsPanel() {
           disabled={!attached || busy}
         >
           <Plus className="h-3 w-3" />
-          <span className="text-[11px]">添加</span>
+          <span className="text-xs">添加</span>
         </Button>
       </div>
 
@@ -143,7 +143,7 @@ export function BreakpointsPanel() {
         <div className="flex-1 overflow-auto px-2 pb-3 text-xs">
           <table className="w-full">
             <thead>
-              <tr className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+              <tr className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
                 <th className="w-8 px-2 py-1 text-left">#</th>
                 <th className="px-2 py-1 text-left">地址 / 位置</th>
                 <th className="w-16 px-2 py-1 text-right">命中</th>
@@ -159,7 +159,7 @@ export function BreakpointsPanel() {
                     <td className="px-2 py-1">
                       <div className="font-mono">{formatHex(bp.address)}</div>
                       {fileShort && bp.line && (
-                        <div className="text-[10px] text-muted-foreground" title={bp.file ?? ""}>
+                        <div className="text-[11px] text-muted-foreground" title={bp.file ?? ""}>
                           {fileShort}:{bp.line}
                         </div>
                       )}

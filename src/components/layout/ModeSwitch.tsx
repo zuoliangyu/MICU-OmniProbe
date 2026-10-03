@@ -84,9 +84,7 @@ export function ModeSwitch({ className, orientation = "horizontal" }: ModeSwitch
             )}
           >
             <Icon className={vertical ? "h-4 w-4" : "h-3.5 w-3.5"} />
-            <span className={vertical ? "text-[10px] font-medium leading-none" : "text-xs font-medium"}>
-              {shortLabel}
-            </span>
+            <span className={vertical ? "text-xs font-medium leading-none" : "text-xs font-medium"}>{shortLabel}</span>
           </Button>
         ))}
       </div>

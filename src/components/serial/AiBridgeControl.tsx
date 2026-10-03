@@ -126,7 +126,7 @@ export function AiBridgeControl() {
           <label className="flex items-center justify-between rounded-[18px] border border-border/60 p-3">
             <span>
               <span className="block text-xs font-medium">允许 AI 写串口</span>
-              <span className="mt-1 block text-[11px] text-muted-foreground">默认关闭；开启后单条最多 1024 字节</span>
+              <span className="mt-1 block text-xs text-muted-foreground">默认关闭；开启后单条最多 1024 字节</span>
             </span>
             <Switch checked={status.allowWrite} disabled={!status.running} onCheckedChange={handleWriteToggle} />
           </label>
@@ -194,7 +194,7 @@ export function AiSkillLink() {
             </Button>
           </div>
 
-          <pre className="max-h-40 whitespace-pre-wrap rounded-[18px] border border-border/60 bg-muted/20 p-3 text-[11px] leading-5 text-muted-foreground">
+          <pre className="max-h-40 whitespace-pre-wrap rounded-[18px] border border-border/60 bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
             {prompt}
           </pre>
           <Button size="sm" onClick={() => copy(prompt, "已复制 Skill 安装文案")} className="w-full gap-1">

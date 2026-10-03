@@ -18,7 +18,7 @@ export function CallStackPanel() {
       <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
         <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">调用栈</span>
         {frames.length > 0 && (
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[11px] text-muted-foreground">
             {frames.length} 帧{frames.length <= 2 ? "（基于 LR，深栈展开待阶段 6）" : ""}
           </span>
         )}
@@ -34,7 +34,7 @@ export function CallStackPanel() {
         <div className="flex-1 overflow-auto px-2 pb-3 text-xs">
           <table className="w-full">
             <thead>
-              <tr className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+              <tr className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
                 <th className="w-8 px-2 py-1 text-left">#</th>
                 <th className="px-2 py-1 text-left">函数</th>
                 <th className="px-2 py-1 text-left">位置</th>

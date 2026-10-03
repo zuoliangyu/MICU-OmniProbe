@@ -170,7 +170,7 @@ function CodeSnippet({ code, language }: { code: string; language?: string }) {
   return (
     <div className="relative mt-2 overflow-hidden rounded-[14px] border border-border/60 bg-muted/40">
       <div className="flex items-center justify-between border-b border-border/50 bg-muted/30 px-3 py-1.5">
-        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+        <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
           <FileCode2 className="h-3 w-3" />
           {language ?? "code"}
         </div>
@@ -178,7 +178,7 @@ function CodeSnippet({ code, language }: { code: string; language?: string }) {
           type="button"
           onClick={handleCopy}
           className={cn(
-            "flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] transition-colors",
+            "flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors",
             copied ? "bg-green-500/15 text-green-600" : "text-muted-foreground hover:bg-muted hover:text-foreground"
           )}
         >
@@ -202,7 +202,7 @@ function ExternalLinkButton({ url, label }: { url: string; label: string }) {
     <button
       type="button"
       onClick={() => void openExternal(url).catch(() => undefined)}
-      className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-white/70 px-3 py-1 text-[11px] text-foreground transition-colors hover:border-primary/40 hover:bg-primary/8"
+      className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-white/70 px-3 py-1 text-xs text-foreground transition-colors hover:border-primary/40 hover:bg-primary/8"
     >
       <Github className="h-3 w-3 text-primary" />
       {label}

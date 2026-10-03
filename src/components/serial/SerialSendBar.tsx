@@ -315,7 +315,7 @@ export function SerialSendBar() {
                 </Select>
                 {fileProtocol === "raw" && (
                   <div className="grid grid-cols-2 gap-2">
-                    <label className="space-y-1 text-[11px] text-muted-foreground">
+                    <label className="space-y-1 text-xs text-muted-foreground">
                       <span>分块字节数</span>
                       <Input
                         type="number"
@@ -327,7 +327,7 @@ export function SerialSendBar() {
                         className="h-8"
                       />
                     </label>
-                    <label className="space-y-1 text-[11px] text-muted-foreground">
+                    <label className="space-y-1 text-xs text-muted-foreground">
                       <span>分块间隔 (ms)</span>
                       <Input
                         type="number"
@@ -341,7 +341,7 @@ export function SerialSendBar() {
                     </label>
                   </div>
                 )}
-                <p className="text-[11px] leading-5 text-muted-foreground">
+                <p className="text-xs leading-5 text-muted-foreground">
                   {fileProtocol === "raw"
                     ? "文件内容原样发送，不追加编码或换行。"
                     : "请先让设备进入对应协议的接收模式。协议传输期间普通接收显示会暂停。"}
@@ -350,9 +350,7 @@ export function SerialSendBar() {
 
               {textViewMode === "terminal" && (
                 <div className="rounded-[20px] border border-border/60 bg-muted/20 p-2.5">
-                  <div className="mb-2 text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
-                    终端快捷发送
-                  </div>
+                  <div className="mb-2 text-xs font-medium tracking-[0.08em] text-muted-foreground">终端快捷发送</div>
                   <div className="flex flex-wrap gap-2">
                     <Button size="sm" variant="outline" onClick={() => void sendRawBytes([0x03], "CTRL+C")}>
                       Ctrl+C
@@ -367,7 +365,7 @@ export function SerialSendBar() {
                       Esc
                     </Button>
                   </div>
-                  <div className="mt-2 text-[11px] leading-5 text-muted-foreground">
+                  <div className="mt-2 text-xs leading-5 text-muted-foreground">
                     终端视图下可用上下方向键切换本地发送历史，Ctrl+C / Ctrl+D 可直接发送控制字节。
                   </div>
                 </div>
@@ -377,13 +375,13 @@ export function SerialSendBar() {
         </Popover>
 
         {textViewMode === "terminal" && (
-          <span className="rounded-full bg-secondary px-2 py-1 text-[11px] font-medium text-secondary-foreground">
+          <span className="rounded-full bg-secondary px-2 py-1 text-xs font-medium text-secondary-foreground">
             {terminalSettings.localEcho ? "本地回显" : "设备回显"}
           </span>
         )}
 
         {fileSending && fileProgress && (
-          <span className="max-w-56 truncate rounded-full bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary">
+          <span className="max-w-56 truncate rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
             {fileProgress.phase === "waiting"
               ? "等待接收端"
               : fileProgress.totalBytes > 0

@@ -208,7 +208,7 @@ export function WatchPanel() {
           type="button"
           onClick={refreshAll}
           disabled={busy || state !== "halted" || expressions.length === 0}
-          className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+          className="flex items-center gap-1 rounded-full px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
           title="刷新全部"
         >
           <RefreshCw className={`h-3 w-3 ${busy ? "animate-spin" : ""}`} />
@@ -234,7 +234,7 @@ export function WatchPanel() {
           disabled={!draft.trim()}
         >
           <Plus className="h-3 w-3" />
-          <span className="text-[11px]">添加</span>
+          <span className="text-xs">添加</span>
         </Button>
       </div>
 
@@ -265,7 +265,7 @@ export function WatchPanel() {
                         <div>
                           {u32 && <div>{u32}</div>}
                           {value.bytes.length > 4 && (
-                            <div className="text-[10px] text-muted-foreground break-all">
+                            <div className="text-[11px] text-muted-foreground break-all">
                               {formatBytesHex(value.bytes)}
                             </div>
                           )}

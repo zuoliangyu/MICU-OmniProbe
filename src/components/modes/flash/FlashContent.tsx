@@ -2,7 +2,8 @@
  * Flash 模式内容区域组件
  */
 
-import { Cpu, HardDrive, Layers, Settings } from "lucide-react";
+import { Cpu, FileCode, FolderOpen, HardDrive, Layers, Loader2, Settings } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useProbeStore } from "@/stores/probeStore";
@@ -10,6 +11,7 @@ import { useChipStore } from "@/stores/chipStore";
 import { useFlashStore } from "@/stores/flashStore";
 import { formatBytes, formatHex } from "@/lib/utils";
 import { useShallow } from "zustand/react/shallow";
+import { useFirmwareFile } from "./useFirmwareFile";
 
 export function FlashContent() {
   const { connected, targetInfo } = useProbeStore(
@@ -48,8 +50,66 @@ export function FlashContent() {
     }))
   );
 
+  const { openFirmwareDialog } = useFirmwareFile();
+  const firmwareFileName = firmwarePath?.split(/[\\/]/).pop();
+
   return (
-    <div className="flash-content h-full overflow-y-auto p-4">
+    <div className="flash-content h-full space-y-4 overflow-y-auto p-4">
+      {/* 固件：烧录流程的起点，放在最上方并承载进度 */}
+      <Card>
+        <CardContent className="p-4">
+          {firmwarePath ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-primary/10 p-2.5 text-primary">
+                  {flashing ? <Loader2 className="h-5 w-5 animate-spin" /> : <FileCode className="h-5 w-5" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-mono text-sm font-medium" title={firmwarePath}>
+                    {firmwareFileName}
+                  </div>
+                  <div className="truncate text-xs text-muted-foreground" title={firmwarePath}>
+                    {firmwareSize > 0 ? `${formatBytes(firmwareSize)} · ` : ""}
+                    {firmwarePath}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={openFirmwareDialog}
+                  disabled={flashing}
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                  更换固件
+                </Button>
+              </div>
+              {flashing && (
+                <div className="space-y-1.5">
+                  <Progress value={progress} />
+                  <div className="flex justify-between gap-3 text-xs text-muted-foreground">
+                    <span className="truncate">{message}</span>
+                    <span className="shrink-0 font-medium text-primary">{Math.round(progress)}%</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={openFirmwareDialog}
+              className="flex w-full flex-col items-center gap-2 rounded-xl border-2 border-dashed border-border py-8 text-center transition-colors hover:border-primary/60 hover:bg-primary/5"
+            >
+              <FolderOpen className="h-7 w-7 text-muted-foreground" />
+              <span className="text-sm font-medium text-foreground">选择固件文件</span>
+              <span className="text-xs text-muted-foreground">
+                点击选择，或直接把 .hex / .bin / .elf / .axf 文件拖到窗口中
+              </span>
+            </button>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="flash-content-grid grid grid-cols-2 gap-4">
         {/* Chip info */}
         <Card>
@@ -175,19 +235,6 @@ export function FlashContent() {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="text-sm">
-              <div className="flex justify-between mb-1">
-                <span className="text-muted-foreground">固件文件</span>
-                <span className="font-mono text-xs max-w-[150px] truncate">
-                  {firmwarePath ? firmwarePath.split(/[\\/]/).pop() : "未选择"}
-                </span>
-              </div>
-              {firmwarePath && firmwareSize > 0 && (
-                <div className="flex justify-between mb-2">
-                  <span className="text-muted-foreground">文件大小</span>
-                  <span className="font-mono text-xs">{formatBytes(firmwareSize)}</span>
-                </div>
-              )}
-
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">烧录后校验</span>
                 <input
@@ -261,22 +308,6 @@ export function FlashContent() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Progress display */}
-      {flashing && (
-        <Card className="mt-4">
-          <CardHeader className="py-3">
-            <CardTitle className="text-sm">烧录进度</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Progress value={progress} />
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>{message}</span>
-              <span>{Math.round(progress)}%</span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

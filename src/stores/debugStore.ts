@@ -7,6 +7,31 @@ export type DebugState = "detached" | "attached" | "running" | "halted";
 
 export type HaltReason = "manual" | "breakpoint" | "step" | "exception" | "watchpoint" | "unknown" | null;
 
+const HALT_REASON_TEXT: Record<NonNullable<HaltReason>, string> = {
+  manual: "手动",
+  breakpoint: "断点",
+  step: "单步",
+  exception: "异常",
+  watchpoint: "观察点",
+  unknown: "未知",
+};
+
+/** 调试会话状态的展示文字，例如「已停止 · 断点 · 0x08000123」 */
+export function formatDebugStatus(state: DebugState, haltReason: HaltReason, pc: number | null): string {
+  switch (state) {
+    case "detached":
+      return "调试未连接";
+    case "attached":
+      return "调试已附加";
+    case "running":
+      return "目标运行中";
+    case "halted": {
+      const reason = haltReason ? HALT_REASON_TEXT[haltReason] : null;
+      return `已停止${reason ? ` · ${reason}` : ""}${pc !== null ? ` · 0x${pc.toString(16).padStart(8, "0")}` : ""}`;
+    }
+  }
+}
+
 export type PanelId =
   "symbols" | "source" | "registers" | "locals" | "watch" | "memory" | "callStack" | "breakpoints" | "output";
 

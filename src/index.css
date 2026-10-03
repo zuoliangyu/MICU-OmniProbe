@@ -12,7 +12,7 @@
   --secondary: 217 40% 93%;
   --secondary-foreground: 226 20% 24%;
   --muted: 220 32% 92%;
-  --muted-foreground: 223 14% 45%;
+  --muted-foreground: 222 15% 38%;
   --accent: 210 80% 92%;
   --accent-foreground: 225 28% 22%;
   --destructive: 0 72% 56%;
@@ -142,8 +142,10 @@ body {
 }
 
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
+  /* 去饱和：带颜色的主按钮禁用后不再像"浅色但可点" */
+  filter: saturate(0.35);
 }
 
 input:focus,
@@ -232,6 +234,8 @@ textarea:focus {
 .ide-workbench .mode-stage > .surface-strong {
   gap: 0.375rem;
   padding: 0.375rem;
+  /* 工作区底色比内部卡片深一档，卡片和面板靠底色差而不是细线区分层次 */
+  background: var(--surface-3);
 }
 
 .ide-workspace-grid {
