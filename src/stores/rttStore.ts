@@ -3,7 +3,8 @@ import type { ViewMode, SplitOrientation } from "@/lib/chartTypes";
 import { create } from "zustand";
 import type { RxFramingSettings } from "@/lib/serialTypes";
 import { DEFAULT_RX_FRAMING } from "@/lib/serialTypes";
-import type { RttChannel, RttLine, RttScanMode } from "@/lib/types";
+import type { RttChannel, RttConfig, RttLine, RttPhase, RttScanMode } from "@/lib/types";
+import type { Encoding, LineEnding } from "@/lib/serialTypes";
 import type { ColorParserConfig } from "@/lib/rttColorParser";
 import { loadColorParserConfig, saveColorParserConfig } from "@/lib/rttColorParser";
 
@@ -23,6 +24,50 @@ const VIEW_MODE_KEY = "rtt_view_mode";
 const SPLIT_RATIO_KEY = "rtt_split_ratio";
 const SPLIT_ORIENTATION_KEY = "rtt_split_orientation";
 const RTT_RX_FRAMING_KEY = "rtt_rx_framing";
+const RTT_START_SETTINGS_KEY = "rtt_start_settings";
+const RTT_SEND_SETTINGS_KEY = "rtt_send_settings";
+const RTT_MAX_LINES_KEY = "rtt_max_lines";
+
+export const RTT_MAX_LINES_OPTIONS = [10_000, 50_000, 200_000] as const;
+
+/** 启动 RTT 的持久化设置 */
+export interface RttStartSettings {
+  scanMode: RttScanMode;
+  /** 指定地址 / 范围起始地址 */
+  scanAddress: number;
+  rangeSize: number;
+  elfPath: string;
+  pollInterval: number;
+  haltOnRead: boolean;
+  coreIndex: number;
+  /** 目标失联多少毫秒后放弃 */
+  recoverTimeoutMs: number;
+}
+
+export const DEFAULT_RTT_START_SETTINGS: RttStartSettings = {
+  scanMode: "auto",
+  scanAddress: 0x20000000,
+  rangeSize: 0x10000,
+  elfPath: "",
+  pollInterval: 10,
+  haltOnRead: false,
+  coreIndex: 0,
+  recoverTimeoutMs: 10_000,
+};
+
+export interface RttSendSettings {
+  channel: number;
+  hexMode: boolean;
+  encoding: Encoding;
+  lineEnding: LineEnding;
+}
+
+const DEFAULT_RTT_SEND_SETTINGS: RttSendSettings = {
+  channel: 0,
+  hexMode: false,
+  encoding: "utf-8",
+  lineEnding: "lf",
+};
 let splitRatioSaveTimer: ReturnType<typeof setTimeout> | undefined;
 
 const VIEW_MODE_VALUES = ["text", "chart", "split"] as const;
@@ -35,7 +80,16 @@ interface RttState extends TelemetryChartState {
 
   // 运行状态
   isRunning: boolean;
+  /** 正在扫描控制块（启动命令尚未返回） */
+  isStarting: boolean;
+  /** 运行中的附加状态：目标复位或重新烧录后为 recovering */
+  phase: RttPhase | null;
+  /** 当前控制块信息 */
+  rttInfo: Pick<RttConfig, "control_block_address" | "located_by" | "session_source"> | null;
+  /** 暂停显示：数据继续接收并缓存，继续后一次性补上 */
   isPaused: boolean;
+  /** 暂停期间缓存的行数 */
+  pausedBacklog: number;
   error: string | null;
 
   // 通道信息
@@ -60,9 +114,8 @@ interface RttState extends TelemetryChartState {
   splitOrientation: SplitOrientation;
 
   // 配置
-  scanMode: RttScanMode;
-  scanAddress: number;
-  pollInterval: number;
+  startSettings: RttStartSettings;
+  sendSettings: RttSendSettings;
 
   // 统计
   totalBytes: number;
@@ -72,9 +125,14 @@ interface RttState extends TelemetryChartState {
   setRttConnected: (connected: boolean) => void;
   setRttConnecting: (connecting: boolean) => void;
   setRunning: (running: boolean) => void;
+  setStarting: (starting: boolean) => void;
+  setPhase: (phase: RttPhase | null) => void;
+  /** 启动或重新附加成功后更新通道与控制块信息 */
+  applyConfig: (config: RttConfig) => void;
   setPaused: (paused: boolean) => void;
+  setPausedBacklog: (count: number) => void;
+  setMaxLines: (maxLines: number) => void;
   setError: (error: string | null) => void;
-  setChannels: (upChannels: RttChannel[], downChannels: RttChannel[]) => void;
   selectChannel: (index: number) => void;
   addLines: (lines: Omit<RttLine, "id">[]) => void;
   clearLines: () => void;
@@ -93,9 +151,8 @@ interface RttState extends TelemetryChartState {
 
   sessionRecording: boolean;
   setSessionRecording: (recording: boolean) => void;
-  setScanMode: (mode: RttScanMode) => void;
-  setScanAddress: (address: number) => void;
-  setPollInterval: (interval: number) => void;
+  setStartSettings: (settings: Partial<RttStartSettings>) => void;
+  setSendSettings: (settings: Partial<RttSendSettings>) => void;
   addBytes: (count: number) => void;
   reset: () => void;
 }
@@ -107,13 +164,19 @@ export const useRttStore = create<RttState>((set) => ({
   rttConnected: false,
   rttConnecting: false,
   isRunning: false,
+  isStarting: false,
+  phase: null,
+  rttInfo: null,
   isPaused: false,
+  pausedBacklog: 0,
   error: null,
   upChannels: [],
   downChannels: [],
   selectedChannel: -1,
   lines: [],
-  maxLines: 10000,
+  maxLines: loadNumberFromStorage(RTT_MAX_LINES_KEY, 10_000, (n) =>
+    (RTT_MAX_LINES_OPTIONS as readonly number[]).includes(n)
+  ),
   autoScroll: true,
   showTimestamp: true,
   searchQuery: "",
@@ -122,9 +185,8 @@ export const useRttStore = create<RttState>((set) => ({
   viewMode: loadStringFromStorage(VIEW_MODE_KEY, VIEW_MODE_VALUES, "text"), // 新增：从 localStorage 加载视图模式
   splitRatio: loadNumberFromStorage(SPLIT_RATIO_KEY, 0.4, (n) => n >= 0 && n <= 1), // 新增：从 localStorage 加载分屏比例
   splitOrientation: loadStringFromStorage(SPLIT_ORIENTATION_KEY, SPLIT_ORIENTATION_VALUES, "vertical"),
-  scanMode: "auto",
-  scanAddress: 0x20000000,
-  pollInterval: 10, // 默认 10ms，更快的轮询
+  startSettings: loadFromStorage(RTT_START_SETTINGS_KEY, DEFAULT_RTT_START_SETTINGS),
+  sendSettings: loadFromStorage(RTT_SEND_SETTINGS_KEY, DEFAULT_RTT_SEND_SETTINGS),
   totalBytes: 0,
   lineIdCounter: 0,
 
@@ -132,13 +194,36 @@ export const useRttStore = create<RttState>((set) => ({
 
   setRttConnecting: (rttConnecting) => set({ rttConnecting }),
 
-  setRunning: (isRunning) => set({ isRunning, error: null }),
+  // 停止时一并解除暂停：否则下次启动仍处于暂停，数据只进缓存不显示
+  setRunning: (isRunning) =>
+    set(isRunning ? { isRunning, error: null } : { isRunning, isPaused: false, phase: null, isStarting: false }),
+
+  setStarting: (isStarting) => set({ isStarting }),
+
+  setPhase: (phase) => set({ phase }),
+
+  applyConfig: (config) =>
+    set({
+      upChannels: config.up_channels,
+      downChannels: config.down_channels,
+      rttInfo: {
+        control_block_address: config.control_block_address,
+        located_by: config.located_by,
+        session_source: config.session_source,
+      },
+    }),
 
   setPaused: (isPaused) => set({ isPaused }),
 
-  setError: (error) => set({ error, isRunning: false }),
+  setPausedBacklog: (pausedBacklog) => set({ pausedBacklog }),
 
-  setChannels: (upChannels, downChannels) => set({ upChannels, downChannels }),
+  setMaxLines: (maxLines) => {
+    saveNumberToStorage(RTT_MAX_LINES_KEY, maxLines);
+    set((state) => ({ maxLines, lines: state.lines.length > maxLines ? state.lines.slice(-maxLines) : state.lines }));
+  },
+
+  setError: (error) =>
+    set(error ? { error, isRunning: false, isPaused: false, phase: null, isStarting: false } : { error }),
 
   selectChannel: (selectedChannel) => set({ selectedChannel }),
 
@@ -149,11 +234,16 @@ export const useRttStore = create<RttState>((set) => ({
         ...line,
         id: ++idCounter,
       }));
-      const lines = [...state.lines, ...linesWithId].slice(-state.maxLines);
+      // 只在超出上限时裁剪：避免每批数据都额外复制一次整个缓冲区
+      const overflow = state.lines.length + linesWithId.length - state.maxLines;
+      const lines =
+        overflow > 0
+          ? state.lines.slice(Math.min(overflow, state.lines.length)).concat(linesWithId.slice(-state.maxLines))
+          : state.lines.concat(linesWithId);
       return { lines, lineIdCounter: idCounter };
     }),
 
-  clearLines: () => set({ lines: [], lineIdCounter: 0, totalBytes: 0 }),
+  clearLines: () => set({ lines: [], lineIdCounter: 0, totalBytes: 0, pausedBacklog: 0 }),
 
   setAutoScroll: (autoScroll) => set({ autoScroll }),
 
@@ -199,11 +289,19 @@ export const useRttStore = create<RttState>((set) => ({
     set({ sessionRecording: recording });
   },
 
-  setScanMode: (scanMode) => set({ scanMode }),
+  setStartSettings: (settings) =>
+    set((state) => {
+      const next = { ...state.startSettings, ...settings };
+      saveToStorage(RTT_START_SETTINGS_KEY, next);
+      return { startSettings: next };
+    }),
 
-  setScanAddress: (scanAddress) => set({ scanAddress }),
-
-  setPollInterval: (pollInterval) => set({ pollInterval }),
+  setSendSettings: (settings) =>
+    set((state) => {
+      const next = { ...state.sendSettings, ...settings };
+      saveToStorage(RTT_SEND_SETTINGS_KEY, next);
+      return { sendSettings: next };
+    }),
 
   addBytes: (count) => set((state) => ({ totalBytes: state.totalBytes + count })),
 
@@ -212,7 +310,11 @@ export const useRttStore = create<RttState>((set) => ({
       rttConnected: false,
       rttConnecting: false,
       isRunning: false,
+      isStarting: false,
+      phase: null,
+      rttInfo: null,
       isPaused: false,
+      pausedBacklog: 0,
       error: null,
       upChannels: [],
       downChannels: [],

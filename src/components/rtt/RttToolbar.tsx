@@ -6,7 +6,9 @@ import { TriggerSettingsPanel } from "./TriggerSettingsPanel";
 import { useLogStore } from "@/stores/logStore";
 import { useProbeStore } from "@/stores/probeStore";
 import { useChipStore } from "@/stores/chipStore";
-import { startRtt, stopRtt, clearRttBuffer, connectRtt, disconnectRtt, getRttConnectionStatus } from "@/lib/tauri";
+import { startRtt, stopRtt, connectRtt, disconnectRtt, getRttConnectionStatus } from "@/lib/tauri";
+import { buildRttStartOptions, formatHexAddress } from "@/lib/rttStart";
+import { RttStartSettingsPanel } from "./RttStartSettingsPanel";
 import { Button } from "@/components/ui/button";
 import { DataViewSwitch } from "@/components/ui/segmented-control";
 import { Input } from "@/components/ui/input";
@@ -52,20 +54,19 @@ export function RttToolbar() {
     displayMode,
     viewMode,
     splitOrientation,
-    scanMode,
-    scanAddress,
-    pollInterval,
+    isStarting,
+    pausedBacklog,
     chartConfig,
     setRttConnected,
     setRttConnecting,
     setRunning,
+    setStarting,
     setPaused,
     setAutoScroll,
     setSearchQuery,
     setDisplayMode,
     setViewMode,
     setSplitOrientation,
-    setChannels,
     clearLines,
     setChartConfig,
     sessionRecording,
@@ -86,20 +87,19 @@ export function RttToolbar() {
       displayMode: state.displayMode,
       viewMode: state.viewMode,
       splitOrientation: state.splitOrientation,
-      scanMode: state.scanMode,
-      scanAddress: state.scanAddress,
-      pollInterval: state.pollInterval,
+      isStarting: state.isStarting,
+      pausedBacklog: state.pausedBacklog,
       chartConfig: state.chartConfig,
       setRttConnected: state.setRttConnected,
       setRttConnecting: state.setRttConnecting,
       setRunning: state.setRunning,
+      setStarting: state.setStarting,
       setPaused: state.setPaused,
       setAutoScroll: state.setAutoScroll,
       setSearchQuery: state.setSearchQuery,
       setDisplayMode: state.setDisplayMode,
       setViewMode: state.setViewMode,
       setSplitOrientation: state.setSplitOrientation,
-      setChannels: state.setChannels,
       clearLines: state.clearLines,
       setChartConfig: state.setChartConfig,
       sessionRecording: state.sessionRecording,
@@ -121,13 +121,19 @@ export function RttToolbar() {
   // 仅在图表配置对话框打开时才需要实时样本，关闭时用稳定空引用。
   const chartSampleLines = useRttStore((state) => (chartConfigOpen ? state.lines : NO_SAMPLE_LINES));
   const chartSamples = useMemo(() => recentChartSamples(chartSampleLines), [chartSampleLines]);
-  const { selectedProbe, selectedChipName, settings } = useProbeStore(
+  const { selectedProbe, selectedChipName, settings, mainConnected, mainCoreCount } = useProbeStore(
     useShallow((state) => ({
       selectedProbe: state.selectedProbe,
       selectedChipName: state.selectedChipName,
       settings: state.settings,
+      mainConnected: state.connected,
+      mainCoreCount: state.targetInfo?.core_count ?? 1,
     }))
   );
+  // 独立 RTT 连接的核心数；未单独连接时借用烧录连接
+  const [rttCoreCount, setRttCoreCount] = useState(1);
+  const coreCount = rttConnected ? rttCoreCount : mainCoreCount;
+  const canStart = rttConnected || mainConnected;
   const chipSearchQuery = useChipStore((state) => state.searchQuery);
 
   // 检查 RTT 连接状态
@@ -163,7 +169,7 @@ export function RttToolbar() {
       useProbeStore.getState().setError(null);
       addLog("info", `正在连接 RTT (${chipName})...`);
 
-      await connectRtt({
+      const target = await connectRtt({
         probe_identifier: selectedProbe.probe_id,
         target: chipName,
         interface_type: settings.interfaceType === "SWD" ? "Swd" : "Jtag",
@@ -171,6 +177,7 @@ export function RttToolbar() {
         connect_mode: settings.connectMode === "Normal" ? "Normal" : "UnderReset",
       });
 
+      setRttCoreCount(target.core_count ?? 1);
       setRttConnected(true);
       addLog("success", `RTT 连接成功: ${chipName}`);
     } catch (error) {
@@ -185,8 +192,9 @@ export function RttToolbar() {
   // RTT 断开
   const handleRttDisconnect = async () => {
     try {
-      // 如果 RTT 正在运行，先停止
-      if (isRunning) {
+      // 借用烧录连接运行时，断开独立连接不影响它；否则后端会随连接一起停止轮询
+      const sharesMain = useRttStore.getState().rttInfo?.session_source === "main";
+      if ((isRunning || isStarting) && !sharesMain) {
         await stopRtt();
         setRunning(false);
       }
@@ -201,35 +209,59 @@ export function RttToolbar() {
 
   // 启动 RTT
   const handleStart = async () => {
+    const store = useRttStore.getState();
+    if (store.isStarting || store.isRunning) return;
+    const built = buildRttStartOptions(store.startSettings, coreCount);
+    if ("error" in built) {
+      addLog("error", `启动 RTT 失败: ${built.error}`);
+      store.setError(built.error);
+      return;
+    }
+
     try {
-      addLog("info", "正在启动 RTT...");
+      store.setError(null);
+      setStarting(true);
+      addLog("info", "正在查找 RTT 控制块...");
 
-      const config = await startRtt({
-        scan_mode: scanMode,
-        address: scanMode === "exact" ? scanAddress : undefined,
-        poll_interval: pollInterval,
-      });
+      const config = await startRtt(built.options);
 
-      setChannels(config.up_channels, config.down_channels);
+      // 扫描期间点了“取消”：后端已不再起轮询线程
+      if (!useRttStore.getState().isStarting) return;
+      setStarting(false);
+      store.applyConfig(config);
       setRunning(true);
-      addLog("success", `RTT 已启动，发现 ${config.up_channels.length} 个上行通道`);
+      store.setPhase("attached");
+      const address = config.control_block_address;
+      addLog(
+        "success",
+        `RTT 已启动（${config.located_by}${address === null ? "" : `，控制块 ${formatHexAddress(address)}`}，${
+          config.session_source === "main" ? "使用烧录连接" : "独立 RTT 连接"
+        }）`
+      );
 
       // 显示通道信息
       for (const ch of config.up_channels) {
-        addLog("info", `  通道 ${ch.index}: ${ch.name || "(未命名)"} - ${ch.buffer_size} 字节`);
+        addLog("info", `  上行通道 ${ch.index}: ${ch.name || "(未命名)"} - ${ch.buffer_size} 字节`);
+      }
+      for (const ch of config.down_channels) {
+        addLog("info", `  下行通道 ${ch.index}: ${ch.name || "(未命名)"} - ${ch.buffer_size} 字节`);
       }
     } catch (error) {
-      addLog("error", `启动 RTT 失败: ${error}`);
-      setRunning(false);
+      // 取消启动产生的错误不算失败
+      if (!useRttStore.getState().isStarting) return;
+      const message = String(error).replace(/^RTT错误: /, "");
+      addLog("error", `启动 RTT 失败: ${message}`);
+      useRttStore.getState().setError(message);
     }
   };
 
-  // 停止 RTT
+  // 停止 RTT（启动中则取消扫描）
   const handleStop = async () => {
+    const cancelling = useRttStore.getState().isStarting;
     try {
       await stopRtt();
       setRunning(false);
-      addLog("info", "RTT 已停止");
+      addLog("info", cancelling ? "已取消启动 RTT" : "RTT 已停止");
     } catch (error) {
       addLog("error", `停止 RTT 失败: ${error}`);
     }
@@ -241,13 +273,8 @@ export function RttToolbar() {
   };
 
   // 清空
-  const handleClear = async () => {
+  const handleClear = () => {
     clearLines();
-    try {
-      await clearRttBuffer();
-    } catch {
-      // 忽略错误
-    }
   };
 
   const handleExportTxt = async () => {
@@ -282,7 +309,7 @@ export function RttToolbar() {
   const handleCopyAll = () => {
     const { lines, selectedChannel, searchQuery, showTimestamp } = useRttStore.getState();
     let filtered = lines;
-    if (selectedChannel >= 0) filtered = filtered.filter((l) => l.channel === selectedChannel);
+    if (selectedChannel >= 0) filtered = filtered.filter((l) => l.direction === "tx" || l.channel === selectedChannel);
     const q = searchQuery.trim().toLowerCase();
     if (q) filtered = filtered.filter((l) => l.text.toLowerCase().includes(q));
     copyAllLines(filtered, (l) => formatRttLineForCopy(l, showTimestamp), addLog);
@@ -343,26 +370,43 @@ export function RttToolbar() {
         </Button>
       )}
 
-      {!isRunning ? (
+      {isStarting ? (
+        // key 让三种状态各自挂载，避免颜色过渡把“取消启动”短暂显示成绿色
+        <Button key="cancel" size="sm" variant="destructive" onClick={handleStop} className="gap-1">
+          <Square className="h-3.5 w-3.5 animate-pulse" />
+          取消启动
+        </Button>
+      ) : !isRunning ? (
         <Button
+          key="start"
           size="sm"
           onClick={handleStart}
-          disabled={!rttConnected}
+          disabled={!canStart}
+          title={canStart ? undefined : "请先连接 RTT，或在烧录工作台连接设备"}
           className="gap-1 bg-green-600 text-white hover:bg-green-700"
         >
           <Play className="h-3.5 w-3.5" />
           启动
         </Button>
       ) : (
-        <Button size="sm" variant="destructive" onClick={handleStop} className="gap-1">
+        <Button key="stop" size="sm" variant="destructive" onClick={handleStop} className="gap-1">
           <Square className="h-3.5 w-3.5" />
           停止
         </Button>
       )}
 
-      <Button size="sm" variant="outline" onClick={handleTogglePause} disabled={!isRunning} className="gap-1">
+      <RttStartSettingsPanel coreCount={coreCount} disabled={isRunning || isStarting} />
+
+      <Button
+        size="sm"
+        variant={isPaused ? "secondary" : "outline"}
+        onClick={handleTogglePause}
+        disabled={!isRunning}
+        title="暂停只冻结文本区显示，数据继续接收，继续后补上"
+        className="gap-1"
+      >
         {isPaused ? <RotateCcw className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
-        {isPaused ? "继续" : "暂停"}
+        {isPaused ? (pausedBacklog > 0 ? `继续 (+${pausedBacklog.toLocaleString()})` : "继续") : "暂停显示"}
       </Button>
 
       <Button size="sm" variant="outline" onClick={handleClear} className="gap-1">

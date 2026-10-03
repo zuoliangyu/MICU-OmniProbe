@@ -27,6 +27,7 @@ export interface TargetInfo {
   memory_regions: MemoryRegion[];
   flash_algorithms: string[];
   chip_id: number | null;
+  core_count: number;
 }
 
 // 内存区域
@@ -145,8 +146,8 @@ export interface DeviceScanResult {
   status: "Success" | "Warning" | "Error";
 }
 
-// RTT 扫描模式
-export type RttScanMode = "auto" | "exact" | "range";
+// RTT 扫描模式：自动扫描 RAM / 指定地址 / 地址范围 / 从 ELF 读取 _SEGGER_RTT 符号
+export type RttScanMode = "auto" | "exact" | "range" | "elf";
 
 // RTT 启动选项
 export interface RttStartOptions {
@@ -154,8 +155,11 @@ export interface RttStartOptions {
   address?: number;
   range_start?: number;
   range_size?: number;
+  elf_path?: string;
   poll_interval?: number;
-  halt_on_read?: boolean; // 是否在读取时暂停目标 (默认 true)
+  halt_on_read?: boolean; // 读取时暂停目标，默认 false
+  core_index?: number;
+  recover_timeout_ms?: number;
 }
 
 // RTT 通道信息
@@ -170,19 +174,37 @@ export interface RttConfig {
   up_channels: RttChannel[];
   down_channels: RttChannel[];
   control_block_address: number | null;
+  /** 控制块查找方式说明 */
+  located_by: string;
+  /** 使用的探针连接：独立 RTT 连接或借用的烧录连接 */
+  session_source: "rtt" | "main";
 }
 
-// RTT 数据事件 (从后端接收)
-export interface RttDataEvent {
-  channel: number;
-  data: number[];
+// RTT 数据事件 (从后端接收)：一次轮询的所有通道合并为一批，字节为 base64
+export interface RttDataBatch {
   timestamp: number;
+  chunks: { channel: number; data: string }[];
 }
+
+/** attached：正常读取；recovering：目标复位或重新烧录后正在重新查找控制块 */
+export type RttPhase = "attached" | "recovering";
 
 // RTT 状态事件
 export interface RttStatusEvent {
   running: boolean;
   error: string | null;
+  phase: RttPhase | null;
+  /** 重新附加后控制块或通道变化时携带 */
+  config: RttConfig | null;
+}
+
+// RTT 下行发送
+export interface RttWriteOptions {
+  channel: number;
+  data?: number[];
+  text?: string;
+  encoding?: string;
+  line_ending?: string;
 }
 
 // RTT 显示行
@@ -193,6 +215,8 @@ export interface RttLine {
   text: string;
   level: "info" | "warn" | "error" | "debug";
   rawData?: number[]; // 新增：原始字节数据
+  /** 发往目标的下行数据显示为 tx；缺省为 rx */
+  direction?: "rx" | "tx";
 }
 
 // 设备设置

@@ -80,6 +80,8 @@ pub struct FlashProgressEvent {
 
 #[tauri::command]
 pub async fn flash_firmware(options: FlashOptions, state: State<'_, AppState>, window: Window) -> AppResult<()> {
+    // 烧录期间暂停 RTT 读取；结束后固件可能已变化，RTT 重新查找控制块
+    let _rtt = state.rtt_state.suspend(true);
     // 烧录可能持续数分钟，整段放到阻塞线程执行
     with_session(&state.session, move |session| {
         flash_firmware_blocking(session, options, window)
@@ -299,6 +301,7 @@ pub async fn erase_chip(
     window: Window,
 ) -> AppResult<()> {
     let erase_mode = options.map(|o| o.erase_mode).unwrap_or(EraseMode::ChipErase);
+    let _rtt = state.rtt_state.suspend(true);
     with_session(&state.session, move |session| {
         erase_chip_blocking(session, erase_mode, window)
     })
@@ -388,6 +391,7 @@ pub async fn erase_sector(options: EraseSectorOptions, state: State<'_, AppState
         )));
     }
 
+    let _rtt = state.rtt_state.suspend(true);
     with_session(&state.session, move |session| {
         // 用 FlashLoader 写入 0xFF：覆盖到的扇区整体擦除，不要求地址按扇区对齐
         let mut loader = session.target().flash_loader();
@@ -431,6 +435,7 @@ pub async fn verify_firmware(
         }
     }
 
+    let _rtt = state.rtt_state.suspend(false);
     with_session(&state.session, move |session| {
         verify_firmware_blocking(session, file_path, address, window)
     })
@@ -535,6 +540,7 @@ pub async fn read_flash(options: ReadFlashOptions, state: State<'_, AppState>) -
         )));
     }
 
+    let _rtt = state.rtt_state.suspend(false);
     let data = with_session(&state.session, move |session| {
         let mut core = session.core(0).map_err(|e| AppError::FlashError(e.to_string()))?;
         let mut data = vec![0u8; options.size as usize];

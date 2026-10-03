@@ -127,8 +127,8 @@ export function RttIntegrationGuideDialog({ trigger }: RttIntegrationGuideDialog
                 </li>
                 <li>编译报找不到头文件 → 检查 Include Path 是否加上了 RTTBSP 目录。</li>
                 <li>
-                  MICU-OmniProbe 启动 RTT 后看不到输出 → 在「扫描模式」试试「全片扫描」， 或在 map 文件里查{" "}
-                  <Code>_SEGGER_RTT</Code> 地址手动指定。
+                  MICU-OmniProbe 启动 RTT 后找不到控制块 → 点「启动」右侧的扫描模式按钮，改用「ELF 符号」选择固件
+                  ELF，或在 map 文件里查 <Code>_SEGGER_RTT</Code> 地址后用「指定地址」。
                 </li>
                 <li>中文乱码 → 源文件保存为 UTF-8（含 BOM 也行），并避免 GB2312。</li>
               </ul>

@@ -55,6 +55,8 @@ pub struct TargetInfo {
     pub memory_regions: Vec<MemoryRegion>,
     pub flash_algorithms: Vec<String>,
     pub chip_id: Option<u32>,
+    /// 核心数；多核芯片的 RTT 需要选择控制块所在的核心
+    pub core_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -497,6 +499,7 @@ fn build_target_info(session: &Session, chip_id: Option<u32>) -> TargetInfo {
         memory_regions,
         flash_algorithms: target.flash_algorithms.iter().map(|a| a.name.clone()).collect(),
         chip_id,
+        core_count: target.cores.len(),
     }
 }
 
@@ -552,6 +555,7 @@ fn slot_status(slot: &SharedSession, info_slot: &parking_lot::Mutex<Option<Conne
 
 #[tauri::command]
 pub async fn connect_target(options: ConnectOptions, state: State<'_, AppState>) -> AppResult<TargetInfo> {
+    state.rtt_state.stop_if_sharing_main();
     let target_info = reconnect_slot(&state.session, &state.connection_info, options).await?;
     log::info!("=== 连接完成 ===");
     Ok(target_info)
@@ -559,6 +563,7 @@ pub async fn connect_target(options: ConnectOptions, state: State<'_, AppState>)
 
 #[tauri::command]
 pub async fn disconnect(state: State<'_, AppState>) -> AppResult<()> {
+    state.rtt_state.stop_if_sharing_main();
     release_slot(&state.session, &state.connection_info).await
 }
 

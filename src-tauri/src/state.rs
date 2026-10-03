@@ -15,6 +15,17 @@ use std::sync::Arc;
 pub struct RunGeneration(AtomicU64);
 
 impl RunGeneration {
+    /// 仅在未运行时开始新一轮；已在运行（含启动中）返回 None，
+    /// 检查与占位在同一次原子操作里完成，连点启动不会起两轮。
+    pub fn try_start(&self) -> Option<u64> {
+        self.0
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                (v & 1 == 0).then_some(((v >> 1) + 1) << 1 | 1)
+            })
+            .ok()
+            .map(|previous| (previous >> 1) + 1)
+    }
+
     /// 开始新一轮运行，返回本轮代次
     pub fn start(&self) -> u64 {
         let previous = self
@@ -52,11 +63,78 @@ impl RunGeneration {
 #[derive(Default)]
 pub struct RttState {
     pub run: RunGeneration,
+    /// 下行通道发送队列：命令线程入队，轮询线程在每轮读取后写入目标
+    pub down: Mutex<RttDownQueue>,
+    /// 正在进行的烧录/擦除等主连接操作数；非零时轮询线程不访问探针
+    suspended: AtomicU64,
+    /// 每次挂起结束递增；轮询线程发现变化后丢弃旧控制块，重新查找
+    rescan_epoch: AtomicU64,
+    /// 本轮 RTT 借用的是烧录主连接（没有单独建立 RTT 连接时）
+    pub shares_main: AtomicBool,
+}
+
+#[derive(Default)]
+pub struct RttDownQueue {
+    /// 当前控制块的下行通道号；未运行时为空
+    pub channels: Vec<usize>,
+    pub pending: std::collections::VecDeque<(usize, Vec<u8>)>,
+}
+
+impl RttDownQueue {
+    pub fn pending_bytes(&self) -> usize {
+        self.pending.iter().map(|(_, data)| data.len()).sum()
+    }
+
+    pub fn reset(&mut self, channels: Vec<usize>) {
+        self.channels = channels;
+        self.pending.clear();
+    }
 }
 
 impl RttState {
     pub fn is_running(&self) -> bool {
         self.run.is_running()
+    }
+
+    /// 主连接将被替换或释放前调用：借用主连接的 RTT 先停下，避免轮询读到已关闭的会话
+    pub fn stop_if_sharing_main(&self) {
+        if self.shares_main.load(Ordering::SeqCst) && self.is_running() {
+            log::info!("主连接变更，停止借用该连接的 RTT");
+            self.run.stop();
+        }
+    }
+
+    /// 主连接要独占探针时调用（烧录、擦除、校验、读 Flash）。
+    /// 守卫存续期间 RTT 轮询暂停；`rescan` 为 true 表示目标固件可能已变化，结束后重新查找控制块。
+    pub fn suspend(self: &Arc<Self>, rescan: bool) -> RttSuspendGuard {
+        self.suspended.fetch_add(1, Ordering::SeqCst);
+        RttSuspendGuard {
+            state: Arc::clone(self),
+            rescan,
+        }
+    }
+
+    pub fn is_suspended(&self) -> bool {
+        self.suspended.load(Ordering::SeqCst) > 0
+    }
+
+    pub fn rescan_epoch(&self) -> u64 {
+        self.rescan_epoch.load(Ordering::SeqCst)
+    }
+}
+
+pub struct RttSuspendGuard {
+    state: Arc<RttState>,
+    rescan: bool,
+}
+
+impl Drop for RttSuspendGuard {
+    fn drop(&mut self) {
+        // 先登记重扫再解除挂起，轮询线程恢复时一定能看到新的代次
+        if self.rescan {
+            self.state.rescan_epoch.fetch_add(1, Ordering::SeqCst);
+        }
+        self.state.suspended.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -197,6 +275,37 @@ mod tests {
         assert!(run.is_running());
         assert!(run.finish(second));
         assert!(!run.is_running());
+    }
+
+    #[test]
+    fn try_start_rejects_while_running() {
+        let run = RunGeneration::default();
+        let first = run.try_start().expect("空闲时应能启动");
+        assert!(run.try_start().is_none(), "运行中（含启动中）不能再启动");
+        run.stop();
+        let second = run.try_start().expect("停止后应能再次启动");
+        assert!(second > first);
+        assert!(run.is_current(second));
+    }
+
+    #[test]
+    fn suspend_guard_bumps_rescan_epoch_only_when_requested() {
+        let state = std::sync::Arc::new(super::RttState::default());
+        let epoch = state.rescan_epoch();
+        {
+            let _read = state.suspend(false);
+            assert!(state.is_suspended());
+        }
+        assert!(!state.is_suspended());
+        assert_eq!(state.rescan_epoch(), epoch);
+        {
+            let _a = state.suspend(true);
+            let _b = state.suspend(false);
+            drop(_a);
+            assert!(state.is_suspended(), "嵌套挂起时最后一个守卫释放前仍应挂起");
+        }
+        assert!(!state.is_suspended());
+        assert_eq!(state.rescan_epoch(), epoch + 1);
     }
 
     #[test]

@@ -1,12 +1,13 @@
 import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useRttStore } from "@/stores/rttStore";
-import type { RttDataEvent, RttStatusEvent, RttLine } from "@/lib/types";
+import type { RttDataBatch, RttStatusEvent, RttLine } from "@/lib/types";
 import { TelemetryIngestionBuffer, TelemetryParseDispatcher } from "@/lib/chartIngestion";
 import { TEXT_FRAME_IDLE_MS, TextFrameStream } from "@/lib/dataFraming";
 import { getChartParser } from "@/lib/parseChartData";
 import { captureSessionChunk } from "@/lib/sessionCapture";
 import { formatBytes } from "@/lib/formatters";
+import { decodeRttChunks } from "@/lib/rttStart";
 import { useShallow } from "zustand/react/shallow";
 
 /**
@@ -31,6 +32,8 @@ export function useRttEvents() {
 
   // 批量处理缓冲区：所有高频更新统一到 requestAnimationFrame 节流
   const batchLinesRef = useRef<Omit<RttLine, "id">[]>([]);
+  // 暂停显示期间的行：继续接收、解析和录制，只是不进文本区，继续时一次补上
+  const pausedLinesRef = useRef<Omit<RttLine, "id">[]>([]);
   const batchBytesRef = useRef(0);
   const telemetryIngestionRef = useRef(new TelemetryIngestionBuffer());
   const updateTimerRef = useRef<number | null>(null);
@@ -41,9 +44,25 @@ export function useRttEvents() {
     const parseDispatchers = parseDispatchersRef.current;
     // 批量更新函数 - 在每帧最多触发一次 setState
     const flushBatch = () => {
-      if (batchLinesRef.current.length > 0) {
-        addLines(batchLinesRef.current);
+      const { isPaused, maxLines, pausedBacklog, setPausedBacklog } = useRttStore.getState();
+      if (isPaused) {
+        if (batchLinesRef.current.length > 0) {
+          const paused = pausedLinesRef.current;
+          paused.push(...batchLinesRef.current);
+          if (paused.length > maxLines) paused.splice(0, paused.length - maxLines);
+          batchLinesRef.current = [];
+          setPausedBacklog(paused.length);
+        }
+      } else {
+        // 刚继续：暂停期间缓存的行排在本批之前补上
+        const lines =
+          pausedLinesRef.current.length > 0
+            ? pausedLinesRef.current.concat(batchLinesRef.current)
+            : batchLinesRef.current;
+        if (lines.length > 0) addLines(lines);
+        pausedLinesRef.current = [];
         batchLinesRef.current = [];
+        if (pausedBacklog > 0) setPausedBacklog(0);
       }
 
       const telemetryBatch = telemetryIngestionRef.current.drain();
@@ -65,6 +84,13 @@ export function useRttEvents() {
         updateTimerRef.current = requestAnimationFrame(flushBatch);
       }
     };
+
+    // 继续显示时立即补上缓存，不必等下一批数据到来
+    const unsubscribePause = useRttStore.subscribe((state, previous) => {
+      if (previous.isPaused && !state.isPaused) scheduleBatchUpdate();
+      // 暂停中点了清空（clearLines 会把缓存计数归零）：缓存一并丢弃
+      if (state.isPaused && previous.pausedBacklog > 0 && state.pausedBacklog === 0) pausedLinesRef.current = [];
+    });
 
     const queueLines = (lines: Omit<RttLine, "id">[]) => {
       if (lines.length === 0) return;
@@ -129,18 +155,7 @@ export function useRttEvents() {
       );
     };
 
-    // 监听 RTT 数据事件
-    const unlistenData = listen<RttDataEvent>("rtt-data", (event) => {
-      const { channel, data, timestamp } = event.payload;
-
-      // 如果暂停，不处理数据
-      if (useRttStore.getState().isPaused) {
-        frameStreams.get(channel)?.reset();
-        parseDispatchers.get(channel)?.reset();
-        clearIdleFlush(channel);
-        return;
-      }
-
+    const ingestChunk = (channel: number, data: number[], timestamp: number) => {
       batchBytesRef.current += data.length;
 
       // 录制原始字节，带上通道号——回放时必须按通道分别拼帧
@@ -163,21 +178,36 @@ export function useRttEvents() {
         rawData: line.rawData,
       }));
       queueLines(lines);
-      scheduleBatchUpdate();
       scheduleIdleFlush(channel);
+    };
+
+    // 监听 RTT 数据事件：一次轮询的所有通道合并为一批
+    const unlistenData = listen<RttDataBatch>("rtt-data", (event) => {
+      const { timestamp } = event.payload;
+      for (const { channel, data } of decodeRttChunks(event.payload)) ingestChunk(channel, data, timestamp);
+      scheduleBatchUpdate();
     });
 
     // 监听 RTT 状态事件
     const unlistenStatus = listen<RttStatusEvent>("rtt-status", (event) => {
-      const { running, error } = event.payload;
+      const { running, error, phase, config } = event.payload;
+      const store = useRttStore.getState();
       if (!running) {
         for (const channel of frameStreams.keys()) flushPendingChannel(channel, false);
         frameStreams.clear();
         for (const dispatcher of parseDispatchers.values()) dispatcher.reset();
         parseDispatchers.clear();
         scheduleBatchUpdate();
+      } else if (phase === "recovering") {
+        // 目标复位或重新烧录：旧固件残留的半帧不能拼到新固件的输出上
+        for (const stream of frameStreams.values()) stream.reset();
+        for (const dispatcher of parseDispatchers.values()) dispatcher.reset();
       }
+      // 启动命令返回前，轮询线程的“已运行”事件不应提前结束启动中状态
+      if (running && store.isStarting) return;
       setRunning(running);
+      store.setPhase(running ? phase : null);
+      if (config) store.applyConfig(config);
       if (error) {
         setError(error);
       }
@@ -185,6 +215,7 @@ export function useRttEvents() {
 
     // 清理
     return () => {
+      unsubscribePause();
       for (const channel of frameStreams.keys()) flushPendingChannel(channel, false);
       frameStreams.clear();
       for (const timer of idleFlushTimers.values()) window.clearTimeout(timer);

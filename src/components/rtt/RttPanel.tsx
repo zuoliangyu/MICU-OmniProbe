@@ -2,10 +2,12 @@ import { useRttStore } from "@/stores/rttStore";
 import { RttToolbar } from "./RttToolbar";
 import { RttViewer } from "./RttViewer";
 import { RttStatusBar } from "./RttStatusBar";
+import { RttSendBar } from "./RttSendBar";
+import { useProbeStore } from "@/stores/probeStore";
 import { RttChartViewer } from "./RttChartViewer";
 import { Panel, Group, Separator } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
-import { AlertCircle, FileText, Link } from "lucide-react";
+import { AlertCircle, FileText, Link, RefreshCw } from "lucide-react";
 import { useChartWorkspaceControls } from "@/hooks/useChartWorkspaceHost";
 import { useShallow } from "zustand/react/shallow";
 import { ChartDetachedPlaceholder, ChartWindowActions } from "./ChartWindowControls";
@@ -24,6 +26,9 @@ export function RttPanel({ className }: RttPanelProps) {
     setSplitRatio,
     rttConnected,
     isRunning,
+    isStarting,
+    recovering,
+    hasDownChannels,
     hasLines,
     chartConfig,
   } = useRttStore(
@@ -35,6 +40,9 @@ export function RttPanel({ className }: RttPanelProps) {
       setSplitRatio: state.setSplitRatio,
       rttConnected: state.rttConnected,
       isRunning: state.isRunning,
+      isStarting: state.isStarting,
+      recovering: state.isRunning && state.phase === "recovering",
+      hasDownChannels: state.downChannels.length > 0,
       // 只取布尔值：订阅整个 lines 会让面板随每批数据重渲染
       hasLines: state.lines.length > 0,
       chartConfig: state.chartConfig,
@@ -49,25 +57,33 @@ export function RttPanel({ className }: RttPanelProps) {
     restoreInline,
   } = useChartWorkspaceControls("rtt");
 
-  const workflowHint = !rttConnected
+  const mainConnected = useProbeStore((state) => state.connected);
+
+  const workflowHint = isStarting
     ? {
-        icon: Link,
-        title: "先建立 RTT 连接",
-        description: "在右侧配置检查器选择探针和芯片后，先点“连接 RTT”，再启动采集。",
+        icon: RefreshCw,
+        title: "正在查找 RTT 控制块",
+        description: "自动扫描 RAM 可能需要几秒；改用 ELF 符号或指定地址可以立即定位。",
       }
-    : !isRunning
+    : !rttConnected && !mainConnected
       ? {
           icon: Link,
-          title: "RTT 已连接，等待启动",
-          description: "点击工具栏里的“启动”，开始扫描控制块并接收通道数据。",
+          title: "先连接设备",
+          description: "在右侧配置检查器选择探针和芯片后点“连接 RTT”；已在烧录工作台连接时可直接启动。",
         }
-      : !hasLines
+      : !isRunning
         ? {
-            icon: FileText,
-            title: "RTT 正在运行，等待目标输出",
-            description: "如果固件已经在输出数值流，可以直接切到「波形 / FFT」查看图表。",
+            icon: Link,
+            title: "设备已连接，等待启动",
+            description: "点击工具栏里的“启动”，开始查找控制块并接收通道数据。",
           }
-        : null;
+        : !hasLines
+          ? {
+              icon: FileText,
+              title: "RTT 正在运行，等待目标输出",
+              description: "如果固件已经在输出数值流，可以直接切到「波形 / FFT」查看图表。",
+            }
+          : null;
 
   // RTT is now independent from main connection
   return (
@@ -88,6 +104,17 @@ export function RttPanel({ className }: RttPanelProps) {
             <div className="font-medium">RTT 工作流出现错误</div>
             <div className="mt-1 text-xs leading-5 text-red-500/90">{error}</div>
           </div>
+        </div>
+      )}
+
+      {/* 目标复位、重新烧录后的恢复提示 */}
+      {recovering && (
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-[12px] border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400"
+        >
+          <RefreshCw className="h-3.5 w-3.5 shrink-0 animate-spin" />
+          目标已复位或正在更新固件，正在重新查找 RTT 控制块，恢复后自动继续接收。
         </div>
       )}
 
@@ -160,6 +187,9 @@ export function RttPanel({ className }: RttPanelProps) {
           </Group>
         )}
       </div>
+
+      {/* 下行发送：仅在固件提供下行通道时显示 */}
+      {isRunning && hasDownChannels && viewMode !== "chart" && <RttSendBar />}
 
       {/* 状态栏 */}
       <RttStatusBar />

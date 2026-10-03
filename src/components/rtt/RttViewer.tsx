@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRttStore } from "@/stores/rttStore";
+import { useProbeStore } from "@/stores/probeStore";
 import { useLogStore } from "@/stores/logStore";
 import { cn } from "@/lib/utils";
 import type { RttLine } from "@/lib/types";
@@ -13,28 +14,41 @@ import { useSaveTxtContextMenu } from "@/components/ui/save-txt-context-menu";
 import { useShallow } from "zustand/react/shallow";
 
 export function RttViewer() {
-  const { lines, selectedChannel, searchQuery, autoScroll, showTimestamp, isRunning, rttConnected, displayMode } =
-    useRttStore(
-      useShallow((state) => ({
-        lines: state.lines,
-        selectedChannel: state.selectedChannel,
-        searchQuery: state.searchQuery,
-        autoScroll: state.autoScroll,
-        showTimestamp: state.showTimestamp,
-        isRunning: state.isRunning,
-        rttConnected: state.rttConnected,
-        displayMode: state.displayMode,
-      }))
-    );
+  const {
+    lines,
+    selectedChannel,
+    searchQuery,
+    autoScroll,
+    showTimestamp,
+    isRunning,
+    isStarting,
+    isPaused,
+    rttConnected,
+    displayMode,
+  } = useRttStore(
+    useShallow((state) => ({
+      lines: state.lines,
+      selectedChannel: state.selectedChannel,
+      searchQuery: state.searchQuery,
+      autoScroll: state.autoScroll,
+      showTimestamp: state.showTimestamp,
+      isRunning: state.isRunning,
+      isStarting: state.isStarting,
+      isPaused: state.isPaused,
+      rttConnected: state.rttConnected,
+      displayMode: state.displayMode,
+    }))
+  );
+  const mainConnected = useProbeStore((state) => state.connected);
   const addLog = useLogStore((state) => state.addLog);
 
   // 过滤行
   const filteredLines = useMemo(() => {
     let filtered = lines;
 
-    // 按通道过滤
+    // 按通道过滤（只作用于上行数据；发送记录始终显示）
     if (selectedChannel >= 0) {
-      filtered = filtered.filter((line) => line.channel === selectedChannel);
+      filtered = filtered.filter((line) => line.direction === "tx" || line.channel === selectedChannel);
     }
 
     // 按搜索词过滤（行文本的小写形式按行对象缓存，避免每批数据重算整个缓冲区）
@@ -108,11 +122,15 @@ export function RttViewer() {
   if (filteredLines.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-        {!rttConnected
-          ? "请在右侧配置检查器选择探针和芯片，连接 RTT"
-          : isRunning
-            ? "等待数据..."
-            : "点击「启动」开始接收 RTT 数据"}
+        {isStarting
+          ? "正在查找 RTT 控制块..."
+          : !rttConnected && !mainConnected
+            ? "请在右侧配置检查器选择探针和芯片，连接 RTT"
+            : isRunning
+              ? isPaused
+                ? "显示已暂停，点击「继续」查看缓存的数据"
+                : "等待数据..."
+              : "点击「启动」开始接收 RTT 数据"}
       </div>
     );
   }
@@ -171,6 +189,8 @@ interface RttLineItemProps {
 const RttLineItem = React.memo(function RttLineItem({ line, showTimestamp, displayMode, selected }: RttLineItemProps) {
   const colorParserConfig = useRttStore((state) => state.colorParserConfig);
 
+  const isTx = line.direction === "tx";
+
   const textSegments = useMemo(
     () => parseColoredSegments(line.text, colorParserConfig),
     [line.text, colorParserConfig]
@@ -178,12 +198,18 @@ const RttLineItem = React.memo(function RttLineItem({ line, showTimestamp, displ
 
   return (
     <div
-      className={cn("flex gap-2 py-0.5 hover:bg-muted/50", LOG_LEVEL_COLORS[line.level], selected && "bg-primary/20")}
+      className={cn(
+        "flex gap-2 py-0.5 hover:bg-muted/50",
+        isTx ? "text-blue-500" : LOG_LEVEL_COLORS[line.level],
+        selected && "bg-primary/20"
+      )}
     >
       {showTimestamp && (
         <span className="text-muted-foreground shrink-0 select-none">[{formatTime(line.timestamp.getTime())}]</span>
       )}
-      <span className="text-muted-foreground shrink-0 select-none">[{line.channel}]</span>
+      <span className={cn("shrink-0 select-none", isTx ? "text-blue-500" : "text-muted-foreground")}>
+        [{isTx ? `→${line.channel}` : line.channel}]
+      </span>
       {displayMode === "hex" ? (
         <span className="whitespace-pre-wrap break-all font-mono">{formatDataAsHex(line.rawData, line.text)}</span>
       ) : (

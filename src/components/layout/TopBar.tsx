@@ -26,6 +26,7 @@ export function TopBar({ inspectorOpen, onToggleInspector }: TopBarProps) {
   const selectedProbe = useProbeStore((state) => state.selectedProbe);
   const rttConnected = useRttStore((state) => state.rttConnected);
   const rttRunning = useRttStore((state) => state.isRunning);
+  const rttStarting = useRttStore((state) => state.isStarting);
   const totalBytes = useRttStore((state) => state.totalBytes);
   const flashing = useFlashStore((state) => state.flashing);
   const progress = useFlashStore((state) => state.progress);
@@ -60,7 +61,7 @@ export function TopBar({ inspectorOpen, onToggleInspector }: TopBarProps) {
         : mode === "control-panel"
           ? controlPanelSource === "serial"
             ? serialConnected
-            : rttConnected
+            : rttConnected || rttRunning
           : probeConnected;
 
   return (
@@ -142,7 +143,7 @@ export function TopBar({ inspectorOpen, onToggleInspector }: TopBarProps) {
             {inspectorOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
           </Button>
         )}
-        {mode !== "log-analysis" && rttConnected && !rttRunning && (
+        {mode !== "log-analysis" && rttConnected && !rttRunning && !rttStarting && (
           <span className="status-chip hidden items-center gap-1.5 xl:flex">
             <span className="h-2 w-2 rounded-full bg-yellow-500" />
             RTT 就绪

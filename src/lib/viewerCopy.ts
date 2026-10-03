@@ -44,7 +44,7 @@ export function formatDataAsHex(data: number[] | undefined, text: string): strin
 /** 按界面显示样式把 RTT 行转成可复制文本 */
 export function formatRttLineForCopy(line: RttLine, showTimestamp: boolean): string {
   const ts = showTimestamp ? `[${formatTime(line.timestamp.getTime())}] ` : "";
-  return `${ts}[${line.channel}] ${line.text}`;
+  return `${ts}[${line.direction === "tx" ? "→" : ""}${line.channel}] ${line.text}`;
 }
 
 /** 按界面显示样式把串口行转成可复制文本 */

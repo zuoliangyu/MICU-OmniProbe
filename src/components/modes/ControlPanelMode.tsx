@@ -33,7 +33,8 @@ export function ControlPanelMode() {
       source !== "rtt"
         ? null
         : {
-            connected: state.rttConnected,
+            // 借用烧录连接运行时没有独立 RTT 连接，以运行状态为准
+            connected: state.rttConnected || state.isRunning,
             running: state.isRunning,
             lines: state.lines,
             autoScroll: state.autoScroll,

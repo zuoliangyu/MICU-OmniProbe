@@ -83,7 +83,7 @@ pub fn run() {
             // RTT命令
             rtt::start_rtt,
             rtt::stop_rtt,
-            rtt::clear_rtt_buffer,
+            rtt::write_rtt,
             // 配置命令
             config::search_chips,
             config::get_chip_info,
