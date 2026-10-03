@@ -401,7 +401,7 @@ textarea:focus {
   box-shadow: 0 24px 70px rgba(34, 48, 79, 0.22);
 }
 
-/* 关闭按钮自身是 absolute 定位，不能被这里改成 relative */
+/* 关闭按钮自身是 absolute 定位，不能被这里改成 relative；它用 z-10 压在这些 z-index:1 的子元素之上 */
 .glass-dialog > *:not(.dialog-close) {
   position: relative;
   z-index: 1;
