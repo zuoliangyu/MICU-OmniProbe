@@ -18,28 +18,37 @@ impl RunGeneration {
     /// 仅在未运行时开始新一轮；已在运行（含启动中）返回 None，
     /// 检查与占位在同一次原子操作里完成，连点启动不会起两轮。
     pub fn try_start(&self) -> Option<u64> {
-        self.0
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
-                (v & 1 == 0).then_some(((v >> 1) + 1) << 1 | 1)
-            })
+        self.update(|v| (v & 1 == 0).then_some(((v >> 1) + 1) << 1 | 1))
             .ok()
             .map(|previous| (previous >> 1) + 1)
     }
 
     /// 开始新一轮运行，返回本轮代次
     pub fn start(&self) -> u64 {
-        let previous = self
-            .0
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(((v >> 1) + 1) << 1 | 1))
-            .unwrap_or_default();
+        let previous = self.update(|v| Some(((v >> 1) + 1) << 1 | 1)).unwrap_or_default();
         (previous >> 1) + 1
     }
 
     /// 停止当前运行（任何代次的循环都会在下一轮检查时退出）
     pub fn stop(&self) {
-        let _ = self
-            .0
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(((v >> 1) + 1) << 1));
+        let _ = self.update(|v| Some(((v >> 1) + 1) << 1));
+    }
+
+    /// 原子地读-改-写，返回旧值；`f` 返回 None 时放弃并返回当前值。
+    /// 等价于 `fetch_update`，但它在新版 Rust 中已弃用（改名 `try_update`），
+    /// 而 `try_update` 在旧版中不存在；手写循环两边都能编译且没有弃用警告。
+    fn update(&self, f: impl Fn(u64) -> Option<u64>) -> Result<u64, u64> {
+        let mut current = self.0.load(Ordering::SeqCst);
+        loop {
+            let next = f(current).ok_or(current)?;
+            match self
+                .0
+                .compare_exchange_weak(current, next, Ordering::SeqCst, Ordering::SeqCst)
+            {
+                Ok(previous) => return Ok(previous),
+                Err(actual) => current = actual,
+            }
+        }
     }
 
     pub fn is_running(&self) -> bool {
