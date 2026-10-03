@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.0.1-blue" alt="Version 3.0.1" />
+  <img src="https://img.shields.io/badge/version-3.1.0-blue" alt="Version 3.1.0" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey" alt="Windows Linux macOS" />
 </p>
@@ -34,7 +34,7 @@ MICU-OmniProbe 把嵌入式开发中经常分散在多个软件里的工作流�
 | 你的任务               | 使用的工作台 | 主要能力                                                   |
 | ---------------------- | ------------ | ---------------------------------------------------------- |
 | 给 MCU 下载固件        | 烧录         | ELF / HEX / BIN 等格式，擦除、烧录、校验、读取             |
-| 查看高速调试输出       | RTT          | 多通道日志、搜索、颜色标记、波形和 FFT                     |
+| 查看高速调试输出       | RTT          | 多通道日志与下行发送、搜索、颜色标记、波形和 FFT           |
 | 调试 CLI 或串口协议    | 串口         | 串口/TCP/UDP、通用二进制、CAN/SLCAN、Modbus、终端与图表    |
 | 分析已有日志文件       | 日志         | 流式导入大日志、搜索、时间戳识别和数值图表                 |
 | 组合设备操作与数据显示 | 控制面板     | 独立画布，可选择串口或 RTT 数据来源                        |
@@ -63,6 +63,17 @@ MICU-OmniProbe 把嵌入式开发中经常分散在多个软件里的工作流�
 </table>
 
 > 截图均使用应用内置的“模拟数据”生成，无需连接硬件即可复现。
+
+## 3.1.0 更新重点
+
+3.1.0 重点增强 RTT，并升级探针支持：
+
+- **RTT 双向通信**：可向目标的下行通道发送文本或 HEX，固件用 `SEGGER_RTT_Read` 读取命令
+- **控制块定位更快**：支持从 ELF / AXF 的 `_SEGGER_RTT` 符号、指定地址或地址范围定位，不必整片扫描 RAM
+- **烧录不用停 RTT**：烧录、擦除期间自动暂停读取，完成后重新查找控制块继续接收，固件地址变化也能恢复
+- **更稳的采集**：目标复位或启动较慢时按设定时长持续重连；"暂停显示"不再丢数据；启动过程可取消
+- **少一次连接**：已在烧录工作台连接设备时，RTT 可直接复用该连接
+- **探针升级**：probe-rs 升级至 0.32，新增 Windows J-Link 官方运行库接入（待实机验收），探针插拔自动刷新
 
 ## 3.0.1 更新重点
 
@@ -135,9 +146,10 @@ sudo ./install-udev-rules.sh
 ### 使用 RTT
 
 1. 在右侧选择探针和目标芯片。
-2. 点击“连接 RTT”，再点击“启动”。
-3. 在文本、分屏或图表视图中观察数据。
-4. 从“更多”使用智能启用、波形、FFT、图表配置、导出和 RTT 接入指南。
+2. 点击“连接 RTT”，再点击“启动”；已在烧录工作台连接设备时可直接启动。
+3. 在文本、分屏或图表视图中观察数据；固件有下行通道时可在文本区下方向目标发送数据。
+4. 需要时点击启动按钮旁的扫描模式按钮，改用 ELF 符号、指定地址或地址范围定位控制块。
+5. 从“更多”使用智能启用、波形、FFT、图表配置、导出和 RTT 接入指南。
 
 目标固件需要集成 SEGGER RTT；仓库中的 [`RTTBSP/`](RTTBSP/) 和 [`examples/gd32-rtt/`](examples/gd32-rtt/) 提供可直接参考的文件与示例。
 
@@ -302,7 +314,7 @@ flowchart TB
 - BLE 当前仅支持 Central 角色，不支持在应用内完成 PIN 配对绑定或自定义 MTU
 - 经典蓝牙 SPP 依赖系统创建虚拟串口，必须先在系统设置中配对
 - macOS 首次扫描 BLE 时需要授予系统蓝牙权限
-- CMSIS-DAP RTT 读取可能短暂停止目标内核，不适合对时序极端敏感的场景
+- RTT 默认在目标运行时后台读取；开启“读取时暂停目标”后每次读取都会短暂停止内核，不适合对时序极端敏感的场景
 - ESP32 系列需要特殊烧录流程，当前支持范围有限
 - 大数据量图表建议合理设置缓冲区和可视点数
 
@@ -337,7 +349,7 @@ Windows 也可以直接运行：
 
 ## 版本、反馈与贡献
 
-- 当前版本：`3.0.1`
+- 当前版本：`3.1.0`
 - 完整变化：[CHANGELOG.md](CHANGELOG.md)
 - 问题与建议：[GitHub Issues](https://github.com/zuoliangyu/MICU-OmniProbe/issues)
 - 项目仓库：[zuoliangyu/MICU-OmniProbe](https://github.com/zuoliangyu/MICU-OmniProbe)

@@ -5,7 +5,9 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [3.1.0] - 2026-10-03
+
+3.1.0 重点增强 RTT：支持向目标发送数据、更快地定位控制块、烧录后自动恢复接收，并升级 probe-rs 与探针支持。
 
 ### 新增
 
