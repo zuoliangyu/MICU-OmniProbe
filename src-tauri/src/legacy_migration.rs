@@ -4,9 +4,9 @@
 // 更换 ID 后需要把旧目录整体搬到新 ID 下。必须在 tauri::Builder 创建窗口之前执行，
 // 否则 WebView 会先在新目录初始化出空数据，迁移就会被跳过。
 
+use directories::BaseDirs;
 #[cfg(target_os = "linux")]
 use directories::ProjectDirs;
-use directories::BaseDirs;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
