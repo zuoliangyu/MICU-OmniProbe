@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.0.0-blue" alt="Version 3.0.0" />
+  <img src="https://img.shields.io/badge/version-3.0.1-blue" alt="Version 3.0.1" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey" alt="Windows Linux macOS" />
 </p>
@@ -64,6 +64,16 @@ MICU-OmniProbe 把嵌入式开发中经常分散在多个软件里的工作流�
 
 > 截图均使用应用内置的“模拟数据”生成，无需连接硬件即可复现。
 
+## 3.0.1 更新重点
+
+3.0.1 是一次界面打磨更新：
+
+- **出错不白屏**：某个工作台或配置检查器出错时只影响该区域，并可一键重新加载
+- **更易读**：提升最小字号和说明文字对比度，禁用按钮一眼可辨
+- **烧录更直观**：顶部固件卡片显示文件名、大小与烧录进度，支持点击选择或拖入窗口
+- **操作更统一**：各工作台的"文本 / 分屏 / 图表"切换外观一致；调试状态与 ELF 信息移到顶栏
+- **提示更明确**：连接按钮不可用时直接说明缺少哪一步；控制面板组件库带有专属图标
+
 ## 3.0.0 更新重点
 
 3.0.0 是一次全面的稳定性与体验升级，重点在“长时间、高速率采集下依然流畅可靠”：
@@ -81,7 +91,7 @@ MICU-OmniProbe 把嵌入式开发中经常分散在多个软件里的工作流�
 当前界面采用统一的 IDE 式布局：
 
 - 左侧模式轨道切换烧录、RTT、串口、日志、控制面板、蓝牙和调试工作台
-- 顶部命令栏显示当前模式、目标芯片、探针和连接状态
+- 顶部命令栏显示当前模式、目标芯片、探针和连接状态（调试工作台显示会话状态与已加载的 ELF）
 - 中央工作区专注当前任务，低频操作统一收进“更多”
 - 右侧配置检查器负责连接和参数设置，可折叠、拖动宽度
 - 底部日志默认折叠，需要排查连接、解析或烧录问题时再展开
@@ -326,7 +336,7 @@ Windows 也可以直接运行：
 
 ## 版本、反馈与贡献
 
-- 当前版本：`3.0.0`
+- 当前版本：`3.0.1`
 - 完整变化：[CHANGELOG.md](CHANGELOG.md)
 - 问题与建议：[GitHub Issues](https://github.com/zuoliangyu/MICU-OmniProbe/issues)
 - 项目仓库：[zuoliangyu/MICU-OmniProbe](https://github.com/zuoliangyu/MICU-OmniProbe)
