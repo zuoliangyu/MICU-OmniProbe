@@ -8,7 +8,6 @@
     "build": "tsc && vite build",
     "check": "tsc --noEmit && vite build",
     "test": "node scripts/run-checks.mjs",
-    "test:ui": "playwright test --config e2e/ui.config.ts",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "preview": "vite preview",
@@ -52,7 +51,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "^2.12.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

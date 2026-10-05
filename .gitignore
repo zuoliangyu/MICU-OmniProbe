@@ -7,6 +7,9 @@ src-tauri/target/
 playwright-report/
 test-results/
 
+# 本地 Playwright UI 验收用例
+e2e/
+
 # IDE
 .vscode/
 .idea/
