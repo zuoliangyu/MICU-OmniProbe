@@ -1,6 +1,6 @@
 [package]
 name = "micu-omniprobe"
-version = "3.1.0"
+version = "3.1.1"
 description = "MICU-OmniProbe - 嵌入式开发一体化调试与分析工作台（烧录 / 源码调试 / RTT / 串口 / 蓝牙 / 日志分析）"
 authors = ["zuolan"]
 edition = "2021"

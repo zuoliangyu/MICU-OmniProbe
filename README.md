@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.1.0-blue" alt="Version 3.1.0" />
+  <img src="https://img.shields.io/badge/version-3.1.1-blue" alt="Version 3.1.1" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey" alt="Windows Linux macOS" />
 </p>
@@ -63,6 +63,14 @@ MICU-OmniProbe 把嵌入式开发中经常分散在多个软件里的工作流�
 </table>
 
 > 截图均使用应用内置的“模拟数据”生成，无需连接硬件即可复现。
+
+## 3.1.1 更新重点
+
+3.1.1 补齐 RTT 的固件接入引导：
+
+- **上手有引导**：RTT 文本区没有数据时直接告诉你固件要准备什么，一键打开接入指南
+- **源文件离线导出**：软件内置 SEGGER RTT 的 4 个源文件，选好固件工程目录即可导出，无需联网下载
+- **指南更完整**：补充上位机操作步骤、控制块查找方式的选择和下行通道读取示例
 
 ## 3.1.0 更新重点
 
@@ -349,7 +357,7 @@ Windows 也可以直接运行：
 
 ## 版本、反馈与贡献
 
-- 当前版本：`3.1.0`
+- 当前版本：`3.1.1`
 - 完整变化：[CHANGELOG.md](CHANGELOG.md)
 - 问题与建议：[GitHub Issues](https://github.com/zuoliangyu/MICU-OmniProbe/issues)
 - 项目仓库：[zuoliangyu/MICU-OmniProbe](https://github.com/zuoliangyu/MICU-OmniProbe)
