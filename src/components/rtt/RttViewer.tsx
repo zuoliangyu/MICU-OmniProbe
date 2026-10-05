@@ -12,6 +12,7 @@ import { exportTextAsTxt } from "@/lib/exporters";
 import { lineMatchesQuery } from "@/lib/lineSearch";
 import { useSaveTxtContextMenu } from "@/components/ui/save-txt-context-menu";
 import { useShallow } from "zustand/react/shallow";
+import { RttGettingStarted } from "./RttIntegrationGuideDialog";
 
 export function RttViewer() {
   const {
@@ -120,17 +121,22 @@ export function RttViewer() {
 
   // 空状态
   if (filteredLines.length === 0) {
+    // 搜索或通道过滤导致的空列表不需要接入引导
+    const showGuide = lines.length === 0 && !isStarting && !isPaused;
     return (
-      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-        {isStarting
-          ? "正在查找 RTT 控制块..."
-          : !rttConnected && !mainConnected
-            ? "请在右侧配置检查器选择探针和芯片，连接 RTT"
-            : isRunning
-              ? isPaused
-                ? "显示已暂停，点击「继续」查看缓存的数据"
-                : "等待数据..."
-              : "点击「启动」开始接收 RTT 数据"}
+      <div className="flex h-full flex-col items-center justify-center gap-4 text-sm text-muted-foreground">
+        <div>
+          {isStarting
+            ? "正在查找 RTT 控制块..."
+            : !rttConnected && !mainConnected
+              ? "请在右侧配置检查器选择探针和芯片，连接 RTT"
+              : isRunning
+                ? isPaused
+                  ? "显示已暂停，点击「继续」查看缓存的数据"
+                  : "等待数据..."
+                : "点击「启动」开始接收 RTT 数据"}
+        </div>
+        {showGuide && <RttGettingStarted />}
       </div>
     );
   }

@@ -207,6 +207,12 @@ export interface RttWriteOptions {
   line_ending?: string;
 }
 
+// RTT 源文件导出结果：未允许覆盖且存在同名文件时 written 为空
+export interface RttSourcesExport {
+  written: string[];
+  conflicts: string[];
+}
+
 // RTT 显示行
 export interface RttLine {
   id: number;

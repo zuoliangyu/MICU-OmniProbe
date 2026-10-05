@@ -84,6 +84,7 @@ pub fn run() {
             rtt::start_rtt,
             rtt::stop_rtt,
             rtt::write_rtt,
+            rtt::export_rtt_sources,
             // 配置命令
             config::search_chips,
             config::get_chip_info,

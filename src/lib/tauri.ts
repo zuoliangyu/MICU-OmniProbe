@@ -12,6 +12,7 @@ import type {
   RttConfig,
   RttStartOptions,
   RttWriteOptions,
+  RttSourcesExport,
   EraseMode,
   UsbPermissionStatus,
 } from "./types";
@@ -99,6 +100,11 @@ export async function stopRtt(): Promise<void> {
 /** 向 RTT 下行通道发送数据，返回入队字节数；轮询线程会在下一轮写入目标 */
 export async function writeRtt(options: RttWriteOptions): Promise<number> {
   return await invoke<number>("write_rtt", { options });
+}
+
+/** 把内置的 SEGGER RTT 源文件导出到指定目录 */
+export async function exportRttSources(dir: string, overwrite: boolean): Promise<RttSourcesExport> {
+  return await invoke<RttSourcesExport>("export_rtt_sources", { dir, overwrite });
 }
 
 // 配置命令

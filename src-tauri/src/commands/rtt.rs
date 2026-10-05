@@ -157,6 +157,51 @@ fn find_rtt_symbol(path: &str) -> AppResult<u64> {
         })
 }
 
+/// 内置的 SEGGER RTT 目标端源文件（仓库 RTTBSP/），用户可直接导出到固件工程，无需联网下载
+const RTT_SOURCES: &[(&str, &[u8])] = &[
+    ("SEGGER_RTT.c", include_bytes!("../../../RTTBSP/SEGGER_RTT.c")),
+    ("SEGGER_RTT.h", include_bytes!("../../../RTTBSP/SEGGER_RTT.h")),
+    ("SEGGER_RTT_Conf.h", include_bytes!("../../../RTTBSP/SEGGER_RTT_Conf.h")),
+    (
+        "SEGGER_RTT_printf.c",
+        include_bytes!("../../../RTTBSP/SEGGER_RTT_printf.c"),
+    ),
+];
+
+/// RTT 源文件导出结果。未允许覆盖且目录里已有同名文件时不写入，只返回冲突列表
+#[derive(Debug, Clone, Serialize)]
+pub struct RttSourcesExport {
+    pub written: Vec<String>,
+    pub conflicts: Vec<String>,
+}
+
+/// 把 SEGGER RTT 源文件写入用户选择的目录
+#[tauri::command]
+pub fn export_rtt_sources(dir: String, overwrite: bool) -> AppResult<RttSourcesExport> {
+    let dir = std::path::Path::new(&dir);
+    if !dir.is_absolute() || !dir.is_dir() {
+        return Err(AppError::InvalidInput("请选择一个已存在的文件夹".into()));
+    }
+    let conflicts: Vec<String> = RTT_SOURCES
+        .iter()
+        .filter(|(name, _)| dir.join(name).exists())
+        .map(|(name, _)| name.to_string())
+        .collect();
+    if !overwrite && !conflicts.is_empty() {
+        return Ok(RttSourcesExport {
+            written: Vec::new(),
+            conflicts,
+        });
+    }
+    for (name, content) in RTT_SOURCES {
+        std::fs::write(dir.join(name), content)?;
+    }
+    Ok(RttSourcesExport {
+        written: RTT_SOURCES.iter().map(|(name, _)| name.to_string()).collect(),
+        conflicts,
+    })
+}
+
 /// 启动 RTT 并开始持续轮询
 #[tauri::command]
 pub async fn start_rtt(
@@ -774,5 +819,31 @@ mod tests {
         assert!(multiple.contains("0x20000000") && multiple.contains("多个"));
         let corrupted = describe_attach_error(&RttLibError::ControlBlockCorrupted("bad".into()), &spec);
         assert!(!corrupted.contains("未找到"), "控制块损坏不应被报成未找到");
+    }
+
+    #[test]
+    fn export_sources_reports_conflicts_before_overwriting() {
+        let dir = std::env::temp_dir().join(format!("micu-rtt-export-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir_str = dir.to_string_lossy().into_owned();
+
+        let first = export_rtt_sources(dir_str.clone(), false).unwrap();
+        assert_eq!(first.written.len(), RTT_SOURCES.len());
+        assert!(first.conflicts.is_empty());
+        assert_eq!(std::fs::read(dir.join("SEGGER_RTT.h")).unwrap(), RTT_SOURCES[1].1);
+
+        std::fs::write(dir.join("SEGGER_RTT.h"), b"user edit").unwrap();
+        let blocked = export_rtt_sources(dir_str.clone(), false).unwrap();
+        assert!(blocked.written.is_empty());
+        assert_eq!(blocked.conflicts.len(), RTT_SOURCES.len());
+        assert_eq!(std::fs::read(dir.join("SEGGER_RTT.h")).unwrap(), b"user edit");
+
+        let forced = export_rtt_sources(dir_str, true).unwrap();
+        assert_eq!(forced.written.len(), RTT_SOURCES.len());
+        assert_eq!(std::fs::read(dir.join("SEGGER_RTT.h")).unwrap(), RTT_SOURCES[1].1);
+
+        assert!(export_rtt_sources("relative/dir".into(), false).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
