@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="docs/images/micu-studio-banner.png" width="480" alt="米醋电子工作室 MCU Electronics Studio" />
+</p>
+
+<p align="center">
   <img src="src-tauri/icons/icon.png" width="112" alt="MICU-OmniProbe Logo" />
 </p>
 
