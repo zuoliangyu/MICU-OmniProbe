@@ -3,17 +3,21 @@
 </p>
 
 <p align="center">
-  <img src="src-tauri/icons/icon.png" width="112" alt="MICU-OmniProbe Logo" />
+  <strong>米醋嵌入式AI+</strong><br />
+  不为嵌入式AI赚钱，以培养新一代嵌入式AI工程师为己任
 </p>
 
-<h1 align="center">MICU-OmniProbe</h1>
+<h1 align="center">
+  <img src="src-tauri/icons/icon.png" width="56" align="center" alt="MICU-OmniProbe Logo" />
+  MICU-OmniProbe
+</h1>
 
 <p align="center">
   面向嵌入式开发者的一体化桌面调试与分析工作台：烧录、源码调试、RTT、串口、蓝牙和离线日志分析，一个应用完成。
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.1.1-blue" alt="Version 3.1.1" />
+  <img src="https://img.shields.io/badge/version-3.1.2-blue" alt="Version 3.1.2" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey" alt="Windows Linux macOS" />
 </p>
@@ -67,6 +71,15 @@ MICU-OmniProbe 把嵌入式开发中经常分散在多个软件里的工作流�
 </table>
 
 > 截图均使用应用内置的“模拟数据”生成，无需连接硬件即可复现。
+
+## 3.1.2 更新重点
+
+3.1.2 把 AI 数据桥接扩展到 RTT 和蓝牙：
+
+- **三个工作台都能接 AI**：串口、RTT、蓝牙共用同一个本机桥接，消息按来源区分，"更多" 菜单里都有 AI 和 Skill 入口
+- **AI 也能调 RTT 和蓝牙设备**：可写入 RTT 下行通道或当前选中的蓝牙特征值
+- **写权限分开授权**：在哪个工作台打开，就只允许写哪个目标；面板会提示还有哪些来源处于可写状态
+- **Skill 同步升级**：客户端新增 `--source` 和 `--channel`，旧的串口命令照常可用
 
 ## 3.1.1 更新重点
 
@@ -277,7 +290,7 @@ flowchart TB
 
 串口模拟数据源可生成正弦、方波、三角波、锯齿波、噪声、固定值、圆形或李萨如 XY 轨迹，以及三轴/六轴 IMU 数据。模拟数据与真实串口共用日志、解析、图表和控制面板链路，便于在没有设备时搭建和验证界面。
 
-串口还可以启动本机 AI 数据桥接，把当前图表解析结果以标准批量样本提供给本地客户端。默认只读，写操作需要显式授权。详见 [AI 数据桥接与可视化调参指南](https://zuoliangyu.github.io/MICU-OmniProbe/#/AI_TUNING_GUIDE)。
+串口、RTT 和蓝牙都可以接入本机 AI 数据桥接，把文本行和图表解析结果以标准批量样本提供给本地 AI 客户端，并配套 AI Skill。默认只读，写操作按来源分别授权。详见 [AI 数据桥接与可视化调参指南](https://zuoliangyu.github.io/MICU-OmniProbe/#/AI_TUNING_GUIDE)。
 
 ## 设备与格式支持
 
@@ -304,20 +317,20 @@ flowchart TB
 
 ## 用户文档
 
-| 文档                                                                                   | 适合解决的问题                           |
-| -------------------------------------------------------------------------------------- | ---------------------------------------- |
-| [快速入门](https://zuoliangyu.github.io/MICU-OmniProbe/#/QUICK_START)                | 第一次打开应用，了解界面和基本流程       |
-| [RTT 用户手册](https://zuoliangyu.github.io/MICU-OmniProbe/#/RTT_USER_MANUAL)        | RTT 接入、连接、通道和常见问题           |
-| [图表与 FFT](https://zuoliangyu.github.io/MICU-OmniProbe/#/RTT_CHART_GUIDE)          | 数值格式、波形、FFT、字段和性能参数      |
-| [XY 散点图](https://zuoliangyu.github.io/MICU-OmniProbe/#/RTT_XY_SCATTER_GUIDE)      | 绘制真正的 XY 数据和参数曲线             |
-| [串口终端](https://zuoliangyu.github.io/MICU-OmniProbe/#/SERIAL_TERMINAL_GUIDE)      | 数据源、日志、终端、文件发送和波形       |
-| [日志分析](https://zuoliangyu.github.io/MICU-OmniProbe/#/LOG_ANALYSIS_GUIDE)         | 导入大日志、搜索、时间戳和数值图表       |
-| [蓝牙使用手册](https://zuoliangyu.github.io/MICU-OmniProbe/#/BLUETOOTH_USER_MANUAL)  | BLE、NUS、GATT、Notify / Write 和 SPP    |
-| [设置中心](https://zuoliangyu.github.io/MICU-OmniProbe/#/SETTINGS_GUIDE)             | 主题、背景、默认工作台和日志偏好         |
-| [AI 数据桥接](https://zuoliangyu.github.io/MICU-OmniProbe/#/AI_TUNING_GUIDE)         | 将串口数值流交给本地 AI 客户端分析和调参 |
-| [触发捕获](https://zuoliangyu.github.io/MICU-OmniProbe/#/TRIGGER_CAPTURE_GUIDE)      | 抓瞬时现象：条件成立时冻结前后数据       |
-| [会话录制与回放](https://zuoliangyu.github.io/MICU-OmniProbe/#/SESSION_RECORD_GUIDE) | 录下原始数据，换配置反复重放分析         |
-| [无线串口透传](https://zuoliangyu.github.io/MICU-OmniProbe/#/WIRELESS_SERIAL_GUIDE)  | Zigbee / LoRa / 蓝牙透传模块接入         |
+| 文档                                                                                 | 适合解决的问题                              |
+| ------------------------------------------------------------------------------------ | ------------------------------------------- |
+| [快速入门](https://zuoliangyu.github.io/MICU-OmniProbe/#/QUICK_START)                | 第一次打开应用，了解界面和基本流程          |
+| [RTT 用户手册](https://zuoliangyu.github.io/MICU-OmniProbe/#/RTT_USER_MANUAL)        | RTT 接入、连接、通道和常见问题              |
+| [图表与 FFT](https://zuoliangyu.github.io/MICU-OmniProbe/#/RTT_CHART_GUIDE)          | 数值格式、波形、FFT、字段和性能参数         |
+| [XY 散点图](https://zuoliangyu.github.io/MICU-OmniProbe/#/RTT_XY_SCATTER_GUIDE)      | 绘制真正的 XY 数据和参数曲线                |
+| [串口终端](https://zuoliangyu.github.io/MICU-OmniProbe/#/SERIAL_TERMINAL_GUIDE)      | 数据源、日志、终端、文件发送和波形          |
+| [日志分析](https://zuoliangyu.github.io/MICU-OmniProbe/#/LOG_ANALYSIS_GUIDE)         | 导入大日志、搜索、时间戳和数值图表          |
+| [蓝牙使用手册](https://zuoliangyu.github.io/MICU-OmniProbe/#/BLUETOOTH_USER_MANUAL)  | BLE、NUS、GATT、Notify / Write 和 SPP       |
+| [设置中心](https://zuoliangyu.github.io/MICU-OmniProbe/#/SETTINGS_GUIDE)             | 主题、背景、默认工作台和日志偏好            |
+| [AI 数据桥接](https://zuoliangyu.github.io/MICU-OmniProbe/#/AI_TUNING_GUIDE)         | 将串口、RTT、蓝牙数据交给本地 AI 分析和调参 |
+| [触发捕获](https://zuoliangyu.github.io/MICU-OmniProbe/#/TRIGGER_CAPTURE_GUIDE)      | 抓瞬时现象：条件成立时冻结前后数据          |
+| [会话录制与回放](https://zuoliangyu.github.io/MICU-OmniProbe/#/SESSION_RECORD_GUIDE) | 录下原始数据，换配置反复重放分析            |
+| [无线串口透传](https://zuoliangyu.github.io/MICU-OmniProbe/#/WIRELESS_SERIAL_GUIDE)  | Zigbee / LoRa / 蓝牙透传模块接入            |
 
 全部用户文档见 [在线用户文档](https://zuoliangyu.github.io/MICU-OmniProbe/)。
 
@@ -361,7 +374,7 @@ Windows 也可以直接运行：
 
 ## 版本、反馈与贡献
 
-- 当前版本：`3.1.1`
+- 当前版本：`3.1.2`
 - 完整变化：[CHANGELOG.md](CHANGELOG.md)
 - 问题与建议：[GitHub Issues](https://github.com/zuoliangyu/MICU-OmniProbe/issues)
 - 项目仓库：[zuoliangyu/MICU-OmniProbe](https://github.com/zuoliangyu/MICU-OmniProbe)

@@ -704,23 +704,28 @@ fn default_encoding() -> String {
 /// 向下行通道发送数据。数据进入队列，由轮询线程在下一轮写入目标；返回入队字节数。
 #[tauri::command]
 pub async fn write_rtt(options: RttWriteOptions, state: State<'_, AppState>) -> AppResult<usize> {
-    if !state.rtt_state.is_running() {
-        return Err(AppError::RttError("RTT 未运行，请先启动".into()));
-    }
     let bytes = match (options.data, options.text) {
         (Some(data), _) => data,
         (None, Some(text)) => super::serial::encode_serial_text(text, &options.encoding, &options.line_ending),
         (None, None) => return Err(AppError::InvalidInput("没有要发送的数据".into())),
     };
+    queue_down(&state.rtt_state, options.channel, bytes)
+}
+
+/// 把数据放入下行队列；界面发送与 AI 桥接共用这一处校验。
+pub(crate) fn queue_down(rtt: &RttState, channel: usize, bytes: Vec<u8>) -> AppResult<usize> {
+    if !rtt.is_running() {
+        return Err(AppError::RttError("RTT 未运行，请先启动".into()));
+    }
     if bytes.is_empty() {
         return Ok(0);
     }
-    let mut down = state.rtt_state.down.lock();
-    if !down.channels.contains(&options.channel) {
+    let mut down = rtt.down.lock();
+    if !down.channels.contains(&channel) {
         return Err(AppError::RttError(if down.channels.is_empty() {
             "目标固件没有可用的下行通道（SEGGER_RTT_MAX_NUM_DOWN_BUFFERS 为 0，或 RTT 正在重新附加）".into()
         } else {
-            format!("下行通道 {} 不存在", options.channel)
+            format!("下行通道 {} 不存在", channel)
         }));
     }
     if down.pending_bytes() + bytes.len() > MAX_DOWN_PENDING {
@@ -729,7 +734,7 @@ pub async fn write_rtt(options: RttWriteOptions, state: State<'_, AppState>) -> 
         ));
     }
     let len = bytes.len();
-    down.pending.push_back((options.channel, bytes));
+    down.pending.push_back((channel, bytes));
     Ok(len)
 }
 

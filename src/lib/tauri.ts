@@ -137,10 +137,8 @@ export async function getPackScanReport(packName: string): Promise<PackScanRepor
 }
 
 // 串口命令
+import type { AiBridgeStatus, AiSource, AiTelemetryBatch, AiTextBatch } from "./aiBridge";
 import type {
-  AiBridgeStatus,
-  AiTelemetryBatch,
-  AiTextBatch,
   SerialConfig,
   SerialFileTransferOptions,
   SerialFileTransferProgress,
@@ -193,8 +191,8 @@ export async function clearSerialBuffer(): Promise<void> {
   return await invoke("clear_serial_buffer");
 }
 
-export async function startAiBridge(port: number, allowWrite: boolean): Promise<AiBridgeStatus> {
-  return await invoke<AiBridgeStatus>("start_ai_bridge", { port, allowWrite });
+export async function startAiBridge(port: number): Promise<AiBridgeStatus> {
+  return await invoke<AiBridgeStatus>("start_ai_bridge", { port });
 }
 
 export async function stopAiBridge(): Promise<AiBridgeStatus> {
@@ -205,8 +203,13 @@ export async function getAiBridgeStatus(): Promise<AiBridgeStatus> {
   return await invoke<AiBridgeStatus>("get_ai_bridge_status");
 }
 
-export async function setAiBridgeWriteEnabled(allowWrite: boolean): Promise<AiBridgeStatus> {
-  return await invoke<AiBridgeStatus>("set_ai_bridge_write_enabled", { allowWrite });
+export async function setAiBridgeWriteEnabled(source: AiSource, allowWrite: boolean): Promise<AiBridgeStatus> {
+  return await invoke<AiBridgeStatus>("set_ai_bridge_write_enabled", { source, allowWrite });
+}
+
+/** 同步蓝牙界面当前选中的可写特征值，AI 的 ble.write 写到这里。 */
+export async function setAiBridgeBleTarget(charUuid: string | null, withResponse: boolean | null): Promise<void> {
+  return await invoke("set_ai_bridge_ble_target", { charUuid, withResponse });
 }
 
 export async function publishAiSamples(batch: AiTelemetryBatch): Promise<void> {

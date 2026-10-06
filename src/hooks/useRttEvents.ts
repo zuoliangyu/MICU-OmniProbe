@@ -8,6 +8,8 @@ import { getChartParser } from "@/lib/parseChartData";
 import { captureSessionChunk } from "@/lib/sessionCapture";
 import { formatBytes } from "@/lib/formatters";
 import { decodeRttChunks } from "@/lib/rttStart";
+import { publishToAiBridge } from "@/lib/aiBridge";
+import { useAiBridgeStore } from "@/stores/aiBridgeStore";
 import { useShallow } from "zustand/react/shallow";
 
 /**
@@ -45,6 +47,8 @@ export function useRttEvents() {
     // 批量更新函数 - 在每帧最多触发一次 setState
     const flushBatch = () => {
       const { isPaused, maxLines, pausedBacklog, setPausedBacklog } = useRttStore.getState();
+      // 暂停只影响文本区显示，AI 仍收到本帧全部新数据
+      const incomingLines = batchLinesRef.current;
       if (isPaused) {
         if (batchLinesRef.current.length > 0) {
           const paused = pausedLinesRef.current;
@@ -69,6 +73,9 @@ export function useRttEvents() {
       if (telemetryBatch.points.length > 0) addChartDataBatch(telemetryBatch.points);
       if (telemetryBatch.success > 0 || telemetryBatch.fail > 0)
         incrementParseCounts(telemetryBatch.success, telemetryBatch.fail);
+      if (useAiBridgeStore.getState().status.running) {
+        publishToAiBridge("rtt", incomingLines, telemetryBatch.points, useRttStore.getState().chartConfig);
+      }
 
       if (batchBytesRef.current > 0) {
         addBytes(batchBytesRef.current);

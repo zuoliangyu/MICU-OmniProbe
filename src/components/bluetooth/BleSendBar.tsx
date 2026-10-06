@@ -10,6 +10,7 @@ import { useBluetoothStore } from "@/stores/bluetoothStore";
 import { useLogStore } from "@/stores/logStore";
 import { bleWrite, bleWriteString } from "@/lib/tauri";
 import type { LineEnding } from "@/lib/serialTypes";
+import { withResponseFlag } from "@/lib/bleTypes";
 import { useShallow } from "zustand/react/shallow";
 
 function getLineEndingText(lineEnding: LineEnding) {
@@ -24,12 +25,6 @@ function getLineEndingText(lineEnding: LineEnding) {
     default:
       return "\n";
   }
-}
-
-function withResponseFlag(value: "auto" | "yes" | "no"): boolean | null {
-  if (value === "yes") return true;
-  if (value === "no") return false;
-  return null;
 }
 
 export function BleSendBar() {

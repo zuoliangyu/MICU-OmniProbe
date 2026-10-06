@@ -1,4 +1,4 @@
 interface:
   display_name: "MICU-OmniProbe AI 调参"
-  short_description: "连接标准串口数据流，分析波形并安全建议或执行设备调参"
-  default_prompt: "使用 $micu-omniprobe-ai 连接 MICU-OmniProbe，观察波形并安全建议或执行调参。"
+  short_description: "连接串口、RTT 或蓝牙标准数据流，分析波形并安全建议或执行设备调参"
+  default_prompt: "使用 $micu-omniprobe-ai 连接 MICU-OmniProbe，观察串口、RTT 或蓝牙数据的波形，并安全建议或执行调参。"

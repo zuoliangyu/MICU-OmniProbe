@@ -60,3 +60,12 @@ export interface BleStatusEvent {
 
 /** 蓝牙日志行（与 SerialLine 同形） */
 export type BleLine = SerialLine;
+
+export type BleWriteResponseMode = "auto" | "yes" | "no";
+
+/** 写入方式：auto 交给后端按特征值属性选择。 */
+export function withResponseFlag(value: BleWriteResponseMode): boolean | null {
+  if (value === "yes") return true;
+  if (value === "no") return false;
+  return null;
+}

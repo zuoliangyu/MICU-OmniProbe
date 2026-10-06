@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LazyChartConfigDialog } from "@/components/lazyDialogs";
 import { SessionRecordControls } from "@/components/rtt/SessionRecordControls";
+import { AiBridgeControl, AiSkillLink } from "@/components/ai/AiBridgeControl";
 import { RxFramingSettingsPanel } from "@/components/rtt/RxFramingSettingsPanel";
 import { TriggerSettingsPanel } from "@/components/rtt/TriggerSettingsPanel";
 import { SignalWorkspaceControls } from "@/components/rtt/SignalWorkspaceControls";
@@ -182,6 +183,8 @@ export function BleToolbar() {
                         state.incrementParseCounts(result.telemetryBatch.success, result.telemetryBatch.fail);
                       }}
                     />
+                    <AiBridgeControl source="ble" parsingEnabled={chartConfig.enabled} />
+                    <AiSkillLink source="ble" />
                   </>
                 }
                 onToggle={(domain, closing) =>

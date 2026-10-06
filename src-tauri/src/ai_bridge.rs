@@ -1,4 +1,5 @@
-use crate::state::{AppState, SerialState};
+use crate::ble::SharedBleState;
+use crate::state::{AppState, RttState, SerialState};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -20,6 +21,64 @@ const MAX_TEXT_LINE_BYTES: usize = 64 * 1024;
 const MAX_TEXT_BATCH_BYTES: usize = 256 * 1024;
 const CLIENT_QUEUE_CAPACITY: usize = 32;
 
+/// 桥接数据来源；所有来源共用同一个监听端口，消息以 source 区分。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AiSource {
+    Serial,
+    Rtt,
+    Ble,
+}
+
+impl AiSource {
+    const ALL: [AiSource; 3] = [AiSource::Serial, AiSource::Rtt, AiSource::Ble];
+
+    fn index(self) -> usize {
+        self as usize
+    }
+
+    fn write_denied(self) -> &'static str {
+        match self {
+            AiSource::Serial => "AI 串口写入未授权",
+            AiSource::Rtt => "AI RTT 写入未授权",
+            AiSource::Ble => "AI 蓝牙写入未授权",
+        }
+    }
+}
+
+/// 各来源的 AI 写权限，互相独立。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct AiWritePermissions {
+    pub serial: bool,
+    pub rtt: bool,
+    pub ble: bool,
+}
+
+impl AiWritePermissions {
+    fn allows(&self, source: AiSource) -> bool {
+        match source {
+            AiSource::Serial => self.serial,
+            AiSource::Rtt => self.rtt,
+            AiSource::Ble => self.ble,
+        }
+    }
+}
+
+/// AI 写命令最终落到的设备状态。
+#[derive(Clone)]
+pub struct AiWriteTargets {
+    pub serial: Arc<SerialState>,
+    pub rtt: Arc<RttState>,
+    pub ble: SharedBleState,
+}
+
+/// 蓝牙写入目标跟随界面当前选中的可写特征值。
+#[derive(Debug, Clone)]
+struct BleWriteTarget {
+    char_uuid: String,
+    with_response: Option<bool>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiTelemetryChannel {
@@ -37,7 +96,7 @@ pub struct AiTelemetrySample {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiTelemetryBatch {
-    pub source: String,
+    pub source: AiSource,
     pub sample_rate_hz: f64,
     pub channels: Vec<AiTelemetryChannel>,
     pub samples: Vec<AiTelemetrySample>,
@@ -57,12 +116,15 @@ pub struct AiTextLine {
     pub direction: AiTextDirection,
     pub text: String,
     pub truncated: bool,
+    /// RTT 上行通道号；其他来源不带
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiTextBatch {
-    pub source: String,
+    pub source: AiSource,
     pub lines: Vec<AiTextLine>,
 }
 
@@ -71,7 +133,7 @@ pub struct AiTextBatch {
 pub struct AiBridgeStatus {
     pub running: bool,
     pub port: u16,
-    pub allow_write: bool,
+    pub allow_write: AiWritePermissions,
     pub clients: usize,
     pub dropped_batches: u64,
 }
@@ -106,37 +168,35 @@ struct BridgeClient {
 
 pub struct AiBridgeState {
     running: AtomicBool,
-    allow_write: AtomicBool,
+    /// 按 AiSource::index 排列
+    allow_write: [AtomicBool; 3],
     port: AtomicU16,
     next_client_id: AtomicU64,
     next_sequence: AtomicU64,
     dropped_batches: AtomicU64,
     clients: Mutex<Vec<BridgeClient>>,
     listener_thread: Mutex<Option<JoinHandle<()>>>,
+    ble_target: Mutex<Option<BleWriteTarget>>,
 }
 
 impl Default for AiBridgeState {
     fn default() -> Self {
         Self {
             running: AtomicBool::new(false),
-            allow_write: AtomicBool::new(false),
+            allow_write: Default::default(),
             port: AtomicU16::new(0),
             next_client_id: AtomicU64::new(1),
             next_sequence: AtomicU64::new(1),
             dropped_batches: AtomicU64::new(0),
             clients: Mutex::new(Vec::new()),
             listener_thread: Mutex::new(None),
+            ble_target: Mutex::new(None),
         }
     }
 }
 
 impl AiBridgeState {
-    pub fn start(
-        self: &Arc<Self>,
-        port: u16,
-        allow_write: bool,
-        serial_state: Arc<SerialState>,
-    ) -> Result<AiBridgeStatus, String> {
+    pub fn start(self: &Arc<Self>, port: u16, targets: AiWriteTargets) -> Result<AiBridgeStatus, String> {
         if self.running.load(Ordering::SeqCst) {
             return Err("AI 数据桥接已启动".to_string());
         }
@@ -151,7 +211,7 @@ impl AiBridgeState {
             .map_err(|error| format!("无法读取 AI 数据桥接端口: {error}"))?
             .port();
 
-        self.allow_write.store(allow_write, Ordering::SeqCst);
+        self.revoke_writes();
         self.port.store(actual_port, Ordering::SeqCst);
         self.dropped_batches.store(0, Ordering::SeqCst);
         self.running.store(true, Ordering::SeqCst);
@@ -162,7 +222,7 @@ impl AiBridgeState {
             .spawn(move || {
                 while bridge.running.load(Ordering::SeqCst) {
                     match listener.accept() {
-                        Ok((stream, _)) => bridge.attach_client(stream, Arc::clone(&serial_state)),
+                        Ok((stream, _)) => bridge.attach_client(stream, targets.clone()),
                         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                             thread::sleep(Duration::from_millis(25));
                         }
@@ -196,21 +256,43 @@ impl AiBridgeState {
         }
         clients.clear();
         self.port.store(0, Ordering::SeqCst);
-        self.allow_write.store(false, Ordering::SeqCst);
+        self.revoke_writes();
         drop(clients);
         self.status()
     }
 
-    pub fn set_allow_write(&self, allow_write: bool) -> AiBridgeStatus {
-        self.allow_write.store(allow_write, Ordering::SeqCst);
+    pub fn set_allow_write(&self, source: AiSource, allow_write: bool) -> AiBridgeStatus {
+        self.allow_write[source.index()].store(allow_write, Ordering::SeqCst);
         self.status()
+    }
+
+    pub fn set_ble_target(&self, char_uuid: Option<String>, with_response: Option<bool>) {
+        *self.ble_target.lock() = char_uuid.map(|char_uuid| BleWriteTarget {
+            char_uuid,
+            with_response,
+        });
+    }
+
+    fn revoke_writes(&self) {
+        for source in AiSource::ALL {
+            self.allow_write[source.index()].store(false, Ordering::SeqCst);
+        }
+    }
+
+    fn write_permissions(&self) -> AiWritePermissions {
+        let allowed = |source: AiSource| self.allow_write[source.index()].load(Ordering::SeqCst);
+        AiWritePermissions {
+            serial: allowed(AiSource::Serial),
+            rtt: allowed(AiSource::Rtt),
+            ble: allowed(AiSource::Ble),
+        }
     }
 
     pub fn status(&self) -> AiBridgeStatus {
         AiBridgeStatus {
             running: self.running.load(Ordering::SeqCst),
             port: self.port.load(Ordering::SeqCst),
-            allow_write: self.allow_write.load(Ordering::SeqCst),
+            allow_write: self.write_permissions(),
             clients: self.clients.lock().len(),
             dropped_batches: self.dropped_batches.load(Ordering::SeqCst),
         }
@@ -271,7 +353,7 @@ impl AiBridgeState {
         }
     }
 
-    fn attach_client(self: &Arc<Self>, stream: TcpStream, serial_state: Arc<SerialState>) {
+    fn attach_client(self: &Arc<Self>, stream: TcpStream, targets: AiWriteTargets) {
         let _ = stream.set_nodelay(true);
         let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
         let writer_stream = match stream.try_clone() {
@@ -295,7 +377,7 @@ impl AiBridgeState {
         let hello = json!({
             "schema": SCHEMA,
             "type": "hello",
-            "writeEnabled": self.allow_write.load(Ordering::SeqCst),
+            "writeEnabled": self.write_permissions(),
             "maxCommandBytes": MAX_COMMAND_BYTES,
         })
         .to_string();
@@ -332,7 +414,7 @@ impl AiBridgeState {
                         break;
                     }
                     Ok(Some(line)) => {
-                        let response = bridge.handle_client_line(&line, &serial_state);
+                        let response = bridge.handle_client_line(&line, &targets);
                         if tx.send(response).is_err() {
                             break;
                         }
@@ -350,25 +432,39 @@ impl AiBridgeState {
         });
     }
 
-    fn handle_client_line(&self, line: &str, serial_state: &SerialState) -> String {
+    fn handle_client_line(&self, line: &str, targets: &AiWriteTargets) -> String {
         let id = serde_json::from_str::<serde_json::Value>(line)
             .ok()
             .and_then(|value| value.get("id")?.as_str().map(str::to_string));
-        let command = match parse_client_command(line, self.allow_write.load(Ordering::SeqCst)) {
+        let ClientCommand { id, target, data } = match parse_client_command(line, &self.write_permissions()) {
             Ok(command) => command,
             Err(error) => return error_response(id.as_deref(), error),
         };
 
-        let ClientCommand::SerialWrite { id, data } = command;
-        let result = if serial_state.is_file_transferring() {
-            Err("文件传输中，暂不能发送 AI 串口命令".to_string())
-        } else {
-            serial_state
+        let result = match target {
+            WriteTarget::Serial if targets.serial.is_file_transferring() => {
+                Err("文件传输中，暂不能发送 AI 串口命令".to_string())
+            }
+            WriteTarget::Serial => targets
+                .serial
                 .datasource
                 .lock()
                 .as_mut()
                 .ok_or_else(|| "串口未连接".to_string())
-                .and_then(|source| source.write(&data))
+                .and_then(|source| source.write(&data)),
+            WriteTarget::Rtt { channel } => {
+                crate::commands::rtt::queue_down(&targets.rtt, channel, data).map_err(|error| error.to_string())
+            }
+            WriteTarget::Ble => match self.ble_target.lock().clone() {
+                None => Err("蓝牙未选择可写特征值".to_string()),
+                // 桥接读线程不在异步运行时内，可以直接阻塞等待写入完成
+                Some(ble) => tauri::async_runtime::block_on(crate::commands::ble::write_characteristic(
+                    &targets.ble,
+                    &ble.char_uuid,
+                    &data,
+                    ble.with_response,
+                )),
+            },
         };
         match result {
             Ok(written) => json!({
@@ -385,9 +481,6 @@ impl AiBridgeState {
 }
 
 fn validate_batch(batch: &AiTelemetryBatch) -> Result<(), String> {
-    if batch.source != "serial" {
-        return Err("AI 数据桥接当前仅支持 serial 数据源".to_string());
-    }
     if !batch.sample_rate_hz.is_finite() || batch.sample_rate_hz < 0.0 {
         return Err("sampleRateHz 必须是非负有限数".to_string());
     }
@@ -405,9 +498,6 @@ fn validate_batch(batch: &AiTelemetryBatch) -> Result<(), String> {
 }
 
 fn validate_text_batch(batch: &AiTextBatch) -> Result<(), String> {
-    if batch.source != "serial" {
-        return Err("AI 数据桥接当前仅支持 serial 数据源".to_string());
-    }
     if batch.lines.len() > MAX_TEXT_LINES_PER_BATCH {
         return Err("单批最多包含 256 行文本".to_string());
     }
@@ -472,13 +562,18 @@ fn error_response(id: Option<&str>, error: String) -> String {
 }
 
 #[tauri::command]
-pub fn start_ai_bridge(port: u16, allow_write: bool, state: State<'_, AppState>) -> Result<AiBridgeStatus, String> {
+pub fn start_ai_bridge(port: u16, state: State<'_, AppState>) -> Result<AiBridgeStatus, String> {
     if port < 1024 {
         return Err("AI 数据桥接端口必须在 1024-65535 之间".to_string());
     }
-    state
-        .ai_bridge_state
-        .start(port, allow_write, Arc::clone(&state.serial_state))
+    state.ai_bridge_state.start(
+        port,
+        AiWriteTargets {
+            serial: Arc::clone(&state.serial_state),
+            rtt: Arc::clone(&state.rtt_state),
+            ble: Arc::clone(&state.ble_state),
+        },
+    )
 }
 
 #[tauri::command]
@@ -492,8 +587,13 @@ pub fn get_ai_bridge_status(state: State<'_, AppState>) -> AiBridgeStatus {
 }
 
 #[tauri::command]
-pub fn set_ai_bridge_write_enabled(allow_write: bool, state: State<'_, AppState>) -> AiBridgeStatus {
-    state.ai_bridge_state.set_allow_write(allow_write)
+pub fn set_ai_bridge_write_enabled(source: AiSource, allow_write: bool, state: State<'_, AppState>) -> AiBridgeStatus {
+    state.ai_bridge_state.set_allow_write(source, allow_write)
+}
+
+#[tauri::command]
+pub fn set_ai_bridge_ble_target(char_uuid: Option<String>, with_response: Option<bool>, state: State<'_, AppState>) {
+    state.ai_bridge_state.set_ble_target(char_uuid, with_response);
 }
 
 #[tauri::command]
@@ -507,29 +607,69 @@ pub fn publish_ai_text_lines(batch: AiTextBatch, state: State<'_, AppState>) -> 
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawWrite {
+    id: String,
+    text: String,
+    #[serde(default)]
+    line_ending: String,
+}
+
+#[derive(Deserialize)]
+struct RawRttWrite {
+    #[serde(flatten)]
+    write: RawWrite,
+    /// RTT 下行通道号，缺省为 0
+    #[serde(default)]
+    channel: usize,
+}
+
+#[derive(Deserialize)]
 #[serde(tag = "type")]
 enum RawClientCommand {
     #[serde(rename = "serial.write")]
-    SerialWrite {
-        id: String,
-        text: String,
-        #[serde(rename = "lineEnding", default)]
-        line_ending: String,
-    },
+    Serial(RawWrite),
+    #[serde(rename = "rtt.write")]
+    Rtt(RawRttWrite),
+    #[serde(rename = "ble.write")]
+    Ble(RawWrite),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum WriteTarget {
+    Serial,
+    Rtt { channel: usize },
+    Ble,
+}
+
+impl WriteTarget {
+    fn source(&self) -> AiSource {
+        match self {
+            WriteTarget::Serial => AiSource::Serial,
+            WriteTarget::Rtt { .. } => AiSource::Rtt,
+            WriteTarget::Ble => AiSource::Ble,
+        }
+    }
 }
 
 #[derive(Debug)]
-enum ClientCommand {
-    SerialWrite { id: String, data: Vec<u8> },
+struct ClientCommand {
+    id: String,
+    target: WriteTarget,
+    data: Vec<u8>,
 }
 
-fn parse_client_command(line: &str, allow_write: bool) -> Result<ClientCommand, String> {
+fn parse_client_command(line: &str, permissions: &AiWritePermissions) -> Result<ClientCommand, String> {
     let command: RawClientCommand = serde_json::from_str(line).map_err(|error| format!("无效 JSON 命令: {error}"))?;
-    if !allow_write {
-        return Err("AI 串口写入未授权".to_string());
+    let (target, RawWrite { id, text, line_ending }) = match command {
+        RawClientCommand::Serial(write) => (WriteTarget::Serial, write),
+        RawClientCommand::Rtt(RawRttWrite { write, channel }) => (WriteTarget::Rtt { channel }, write),
+        RawClientCommand::Ble(write) => (WriteTarget::Ble, write),
+    };
+    if !permissions.allows(target.source()) {
+        return Err(target.source().write_denied().to_string());
     }
 
-    let RawClientCommand::SerialWrite { id, text, line_ending } = command;
     if id.is_empty() || id.len() > 64 {
         return Err("命令 id 必须为 1-64 字节".to_string());
     }
@@ -543,19 +683,33 @@ fn parse_client_command(line: &str, allow_write: bool) -> Result<ClientCommand, 
 
     let data = format!("{text}{suffix}").into_bytes();
     if data.len() > MAX_COMMAND_BYTES {
-        return Err("串口命令不能超过 1024 字节".to_string());
+        return Err("单条命令不能超过 1024 字节".to_string());
     }
 
-    Ok(ClientCommand::SerialWrite { id, data })
+    Ok(ClientCommand { id, target, data })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::SerialState;
+    use crate::ble::BleState;
     use std::io::{BufRead, BufReader, Write};
     use std::net::TcpStream;
     use std::sync::Arc;
+
+    const ALL_ALLOWED: AiWritePermissions = AiWritePermissions {
+        serial: true,
+        rtt: true,
+        ble: true,
+    };
+
+    fn targets() -> AiWriteTargets {
+        AiWriteTargets {
+            serial: Arc::new(SerialState::default()),
+            rtt: Arc::new(RttState::default()),
+            ble: Arc::new(BleState::default()),
+        }
+    }
 
     #[test]
     fn only_json_object_lines_are_accepted() {
@@ -570,29 +724,57 @@ mod tests {
     fn serial_write_is_rejected_until_user_enables_it() {
         let result = parse_client_command(
             r#"{"type":"serial.write","id":"tune-1","text":"kp=0.2","lineEnding":"lf"}"#,
-            false,
+            &AiWritePermissions::default(),
         );
 
         assert_eq!(result.unwrap_err(), "AI 串口写入未授权");
     }
 
     #[test]
-    fn authorized_serial_write_applies_requested_line_ending() {
-        let command = parse_client_command(
-            r#"{"type":"serial.write","id":"tune-2","text":"ki=0.05","lineEnding":"crlf"}"#,
-            true,
-        )
-        .unwrap();
+    fn write_permission_is_scoped_to_its_source() {
+        let serial_only = AiWritePermissions {
+            serial: true,
+            ..Default::default()
+        };
+        let rtt = parse_client_command(r#"{"type":"rtt.write","id":"r","text":"kp=1"}"#, &serial_only);
+        let ble = parse_client_command(r#"{"type":"ble.write","id":"b","text":"kp=1"}"#, &serial_only);
 
-        let ClientCommand::SerialWrite { id, data } = command;
-        assert_eq!(id, "tune-2");
-        assert_eq!(data, b"ki=0.05\r\n");
+        assert_eq!(rtt.unwrap_err(), "AI RTT 写入未授权");
+        assert_eq!(ble.unwrap_err(), "AI 蓝牙写入未授权");
     }
 
     #[test]
-    fn oversized_serial_write_is_rejected() {
+    fn authorized_serial_write_applies_requested_line_ending() {
+        let command = parse_client_command(
+            r#"{"type":"serial.write","id":"tune-2","text":"ki=0.05","lineEnding":"crlf"}"#,
+            &ALL_ALLOWED,
+        )
+        .unwrap();
+
+        assert_eq!(command.id, "tune-2");
+        assert_eq!(command.target, WriteTarget::Serial);
+        assert_eq!(command.data, b"ki=0.05\r\n");
+    }
+
+    #[test]
+    fn rtt_write_targets_requested_down_channel() {
+        let command = parse_client_command(
+            r#"{"type":"rtt.write","id":"rtt-1","text":"kp=1","lineEnding":"lf","channel":1}"#,
+            &ALL_ALLOWED,
+        )
+        .unwrap();
+        assert_eq!(command.target, WriteTarget::Rtt { channel: 1 });
+        assert_eq!(command.data, b"kp=1\n");
+
+        let default_channel =
+            parse_client_command(r#"{"type":"rtt.write","id":"rtt-2","text":"kp=1"}"#, &ALL_ALLOWED).unwrap();
+        assert_eq!(default_channel.target, WriteTarget::Rtt { channel: 0 });
+    }
+
+    #[test]
+    fn oversized_write_is_rejected() {
         let line = serde_json::json!({
-            "type": "serial.write",
+            "type": "ble.write",
             "id": "too-large",
             "text": "x".repeat(1025),
             "lineEnding": "none"
@@ -600,15 +782,49 @@ mod tests {
         .to_string();
 
         assert_eq!(
-            parse_client_command(&line, true).unwrap_err(),
-            "串口命令不能超过 1024 字节"
+            parse_client_command(&line, &ALL_ALLOWED).unwrap_err(),
+            "单条命令不能超过 1024 字节"
         );
+    }
+
+    #[test]
+    fn rtt_write_reports_when_rtt_is_not_running() {
+        let bridge = AiBridgeState::default();
+        bridge.set_allow_write(AiSource::Rtt, true);
+        let response = bridge.handle_client_line(r#"{"type":"rtt.write","id":"r","text":"kp=1"}"#, &targets());
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+
+        assert_eq!(response["id"], "r");
+        assert_eq!(response["ok"], false);
+        assert!(response["error"].as_str().unwrap().contains("RTT 未运行"));
+    }
+
+    #[test]
+    fn ble_write_requires_selected_characteristic() {
+        let bridge = AiBridgeState::default();
+        bridge.set_allow_write(AiSource::Ble, true);
+        let response = bridge.handle_client_line(r#"{"type":"ble.write","id":"b","text":"kp=1"}"#, &targets());
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"], "蓝牙未选择可写特征值");
+    }
+
+    #[test]
+    fn stopping_bridge_revokes_every_write_permission() {
+        let bridge = Arc::new(AiBridgeState::default());
+        bridge.start(0, targets()).unwrap();
+        bridge.set_allow_write(AiSource::Serial, true);
+        bridge.set_allow_write(AiSource::Ble, true);
+
+        assert_eq!(bridge.stop().allow_write, AiWritePermissions::default());
     }
 
     #[test]
     fn http_request_closes_connection_before_body_runs() {
         let bridge = Arc::new(AiBridgeState::default());
-        let status = bridge.start(0, true, Arc::new(SerialState::default())).unwrap();
+        let status = bridge.start(0, targets()).unwrap();
+        bridge.set_allow_write(AiSource::Serial, true);
         let mut stream = TcpStream::connect(("127.0.0.1", status.port)).unwrap();
         stream
             .set_read_timeout(Some(std::time::Duration::from_secs(2)))
@@ -635,7 +851,7 @@ mod tests {
     #[test]
     fn client_receives_hello_and_normalized_samples() {
         let bridge = Arc::new(AiBridgeState::default());
-        let status = bridge.start(0, false, Arc::new(SerialState::default())).unwrap();
+        let status = bridge.start(0, targets()).unwrap();
         let stream = TcpStream::connect(("127.0.0.1", status.port)).unwrap();
         stream
             .set_read_timeout(Some(std::time::Duration::from_secs(2)))
@@ -644,14 +860,13 @@ mod tests {
 
         let mut hello = String::new();
         reader.read_line(&mut hello).unwrap();
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&hello).unwrap()["type"],
-            "hello"
-        );
+        let hello: serde_json::Value = serde_json::from_str(&hello).unwrap();
+        assert_eq!(hello["type"], "hello");
+        assert_eq!(hello["writeEnabled"]["rtt"], false);
 
         bridge
             .publish(AiTelemetryBatch {
-                source: "serial".to_string(),
+                source: AiSource::Rtt,
                 sample_rate_hz: 1000.0,
                 channels: vec![AiTelemetryChannel {
                     key: "speed".to_string(),
@@ -669,15 +884,16 @@ mod tests {
         reader.read_line(&mut samples).unwrap();
         let samples: serde_json::Value = serde_json::from_str(&samples).unwrap();
         assert_eq!(samples["schema"], "ek.telemetry/v1");
+        assert_eq!(samples["source"], "rtt");
         assert_eq!(samples["samples"][0]["values"]["speed"], 1200.0);
 
         bridge.stop();
     }
 
     #[test]
-    fn client_receives_serial_text_lines() {
+    fn client_receives_text_lines() {
         let bridge = Arc::new(AiBridgeState::default());
-        let status = bridge.start(0, false, Arc::new(SerialState::default())).unwrap();
+        let status = bridge.start(0, targets()).unwrap();
         let stream = TcpStream::connect(("127.0.0.1", status.port)).unwrap();
         stream
             .set_read_timeout(Some(std::time::Duration::from_secs(2)))
@@ -689,12 +905,25 @@ mod tests {
 
         bridge
             .publish_text(AiTextBatch {
-                source: "serial".to_string(),
+                source: AiSource::Serial,
                 lines: vec![AiTextLine {
                     timestamp: 1234,
                     direction: AiTextDirection::Rx,
                     text: "measurement_state=no_signal".to_string(),
                     truncated: false,
+                    channel: None,
+                }],
+            })
+            .unwrap();
+        bridge
+            .publish_text(AiTextBatch {
+                source: AiSource::Rtt,
+                lines: vec![AiTextLine {
+                    timestamp: 1235,
+                    direction: AiTextDirection::Rx,
+                    text: "boot ok".to_string(),
+                    truncated: false,
+                    channel: Some(1),
                 }],
             })
             .unwrap();
@@ -704,9 +933,17 @@ mod tests {
         let text: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(text["schema"], "ek.telemetry/v1");
         assert_eq!(text["type"], "text");
+        assert_eq!(text["source"], "serial");
         assert_eq!(text["lines"][0]["direction"], "rx");
         assert_eq!(text["lines"][0]["text"], "measurement_state=no_signal");
         assert_eq!(text["lines"][0]["truncated"], false);
+        assert!(text["lines"][0].get("channel").is_none());
+
+        let mut rtt = String::new();
+        reader.read_line(&mut rtt).unwrap();
+        let rtt: serde_json::Value = serde_json::from_str(&rtt).unwrap();
+        assert_eq!(rtt["source"], "rtt");
+        assert_eq!(rtt["lines"][0]["channel"], 1);
 
         bridge.stop();
     }

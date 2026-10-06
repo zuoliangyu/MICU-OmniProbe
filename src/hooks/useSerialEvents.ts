@@ -1,14 +1,15 @@
 import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useSerialStore } from "@/stores/serialStore";
-import type { AiTextLine, SerialDataEvent, SerialStatusEvent } from "@/lib/serialTypes";
+import type { SerialDataEvent, SerialStatusEvent } from "@/lib/serialTypes";
 import {
   mergeSerialReceiveResults,
   SerialReceivePipeline,
   type SerialReceiveResult,
 } from "@/lib/serialReceivePipeline";
 import { formatBytes } from "@/lib/formatters";
-import { publishAiSamples, publishAiTextLines } from "@/lib/tauri";
+import { publishToAiBridge } from "@/lib/aiBridge";
+import { useAiBridgeStore } from "@/stores/aiBridgeStore";
 import { useShallow } from "zustand/react/shallow";
 import { TEXT_FRAME_IDLE_MS } from "@/lib/dataFraming";
 import { captureSessionChunk } from "@/lib/sessionCapture";
@@ -20,11 +21,6 @@ import {
   shouldAutoPollModbus,
 } from "@/lib/parseModbusRtu";
 import { writeSerialData } from "@/lib/serialSend";
-
-const MAX_AI_TEXT_CHARS = 16 * 1024;
-const MAX_AI_TEXT_LINES_PER_BATCH = 256;
-const MAX_AI_TEXT_BYTES_PER_BATCH = 256 * 1024;
-const textEncoder = new TextEncoder();
 
 /**
  * Hook to listen for serial events
@@ -48,7 +44,6 @@ export function useSerialEvents() {
   const batchResultsRef = useRef<SerialReceiveResult[]>([]);
   const updateTimerRef = useRef<number | null>(null);
   const idleFlushTimerRef = useRef<number | null>(null);
-  const bridgeErrorReportedRef = useRef(false);
 
   useEffect(() => {
     const receivePipeline = receivePipelineRef.current;
@@ -58,65 +53,8 @@ export function useSerialEvents() {
       batchResultsRef.current = [];
       commitSerialReceiveBatch(batch);
 
-      const telemetryBatch = batch.telemetryBatch;
-      const { aiBridgeStatus, chartConfig } = useSerialStore.getState();
-      if (aiBridgeStatus.running) {
-        const publications: Promise<void>[] = [];
-        const points = telemetryBatch.points;
-        if (points.length > 0) {
-          const channels =
-            chartConfig.channels.length > 0
-              ? chartConfig.channels.map(({ key, name, unit }) => ({ key, name, unit: unit ?? null }))
-              : Object.keys(points[0]?.values ?? {}).map((key) => ({ key, name: key, unit: null }));
-          for (let index = 0; index < points.length; index += 2048) {
-            publications.push(
-              publishAiSamples({
-                source: "serial",
-                sampleRateHz: chartConfig.sampleRateHz,
-                channels,
-                samples: points.slice(index, index + 2048),
-              })
-            );
-          }
-        }
-
-        let textLines: AiTextLine[] = [];
-        let textBytes = 0;
-        for (const line of batch.lines) {
-          const text = line.text.slice(0, MAX_AI_TEXT_CHARS);
-          const bytes = textEncoder.encode(text).byteLength;
-          if (
-            textLines.length > 0 &&
-            (textLines.length >= MAX_AI_TEXT_LINES_PER_BATCH || textBytes + bytes > MAX_AI_TEXT_BYTES_PER_BATCH)
-          ) {
-            publications.push(publishAiTextLines({ source: "serial", lines: textLines }));
-            textLines = [];
-            textBytes = 0;
-          }
-          textLines.push({
-            timestamp: line.timestamp.getTime(),
-            direction: line.direction,
-            text,
-            truncated: line.text.length > MAX_AI_TEXT_CHARS,
-          });
-          textBytes += bytes;
-        }
-        if (textLines.length > 0) {
-          publications.push(publishAiTextLines({ source: "serial", lines: textLines }));
-        }
-
-        if (publications.length > 0) {
-          void Promise.all(publications)
-            .then(() => {
-              bridgeErrorReportedRef.current = false;
-            })
-            .catch((error) => {
-              if (!bridgeErrorReportedRef.current) {
-                console.warn("AI 数据桥接发布失败", error);
-                bridgeErrorReportedRef.current = true;
-              }
-            });
-        }
+      if (useAiBridgeStore.getState().status.running) {
+        publishToAiBridge("serial", batch.lines, batch.telemetryBatch.points, useSerialStore.getState().chartConfig);
       }
 
       updateTimerRef.current = null;

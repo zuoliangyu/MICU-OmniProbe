@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::ble::{
     ensure_adapter, BleCharacteristic, BleCharacteristicProperties, BleDeviceInfo, BleService, NusAutoConfig,
-    NUS_RX_CHAR_UUID, NUS_SERVICE_UUID, NUS_TX_CHAR_UUID,
+    SharedBleState, NUS_RX_CHAR_UUID, NUS_SERVICE_UUID, NUS_TX_CHAR_UUID,
 };
 use crate::state::AppState;
 
@@ -518,8 +518,17 @@ pub async fn ble_write(
     with_response: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<usize, String> {
-    let ble = state.ble_state.clone();
-    let target_uuid = Uuid::parse_str(&char_uuid).map_err(|e| format!("无效 UUID: {}", e))?;
+    write_characteristic(&state.ble_state, &char_uuid, &data, with_response).await
+}
+
+/// 向已连接设备的特征值写入；界面发送与 AI 桥接共用。
+pub(crate) async fn write_characteristic(
+    ble: &SharedBleState,
+    char_uuid: &str,
+    data: &[u8],
+    with_response: Option<bool>,
+) -> Result<usize, String> {
+    let target_uuid = Uuid::parse_str(char_uuid).map_err(|e| format!("无效 UUID: {}", e))?;
 
     let peripheral = {
         let guard = ble.connected.lock().await;
@@ -535,7 +544,7 @@ pub async fn ble_write(
     let write_type = pick_write_type(characteristic.properties, with_response)?;
     let len = data.len();
     peripheral
-        .write(&characteristic, &data, write_type)
+        .write(&characteristic, data, write_type)
         .await
         .map_err(|e| format!("写入失败: {}", e))?;
 

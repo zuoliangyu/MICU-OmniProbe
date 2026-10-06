@@ -1,6 +1,7 @@
 import { useRttStore } from "@/stores/rttStore";
 import type { RttLine } from "@/lib/types";
 import { SessionRecordControls } from "./SessionRecordControls";
+import { AiBridgeControl, AiSkillLink } from "@/components/ai/AiBridgeControl";
 import { RxFramingSettingsPanel } from "./RxFramingSettingsPanel";
 import { TriggerSettingsPanel } from "./TriggerSettingsPanel";
 import { useLogStore } from "@/stores/logStore";
@@ -482,6 +483,8 @@ export function RttToolbar() {
                           state.incrementParseCounts(result.telemetryBatch.success, result.telemetryBatch.fail);
                         }}
                       />
+                      <AiBridgeControl source="rtt" parsingEnabled={chartConfig.enabled} />
+                      <AiSkillLink source="rtt" />
                     </>
                   }
                   onToggle={(domain, closing) =>

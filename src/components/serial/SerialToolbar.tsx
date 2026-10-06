@@ -33,7 +33,7 @@ import { detectChartConfig, recentChartSamples } from "@/lib/chartAnalysis";
 import { exportSerialLinesAsTxt, exportSerialLinesAsCsv } from "@/lib/exporters";
 import { copyAllLines, formatSerialLineForCopy } from "@/lib/viewerCopy";
 import { useShallow } from "zustand/react/shallow";
-import { AiBridgeControl, AiSkillLink } from "./AiBridgeControl";
+import { AiBridgeControl, AiSkillLink } from "@/components/ai/AiBridgeControl";
 import { useMemo, useState } from "react";
 import { formatTimestamp } from "@/lib/formatters";
 
@@ -351,8 +351,8 @@ export function SerialToolbar() {
                       state.commitSerialReceiveBatch(result);
                     }}
                   />
-                  <AiBridgeControl />
-                  <AiSkillLink />
+                  <AiBridgeControl source="serial" parsingEnabled={chartConfig.enabled} />
+                  <AiSkillLink source="serial" />
                 </div>
                 {viewMode === "split" && (
                   <div className="grid grid-cols-2 gap-1 rounded-[12px] border border-border/50 bg-background/40 p-1">

@@ -9,6 +9,7 @@ import type {
   BleService,
   BleStats,
   BluetoothConnectionMode,
+  BleWriteResponseMode,
 } from "@/lib/bleTypes";
 import type { Encoding, LineEnding, SerialPortInfo } from "@/lib/serialTypes";
 import type { ColorParserConfig } from "@/lib/rttColorParser";
@@ -49,7 +50,7 @@ interface SendSettings {
   encoding: Encoding;
   lineEnding: LineEnding;
   hexMode: boolean;
-  withResponse: "auto" | "yes" | "no";
+  withResponse: BleWriteResponseMode;
 }
 
 const defaultSendSettings: SendSettings = {

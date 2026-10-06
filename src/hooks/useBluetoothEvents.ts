@@ -7,6 +7,10 @@ import { TelemetryIngestionBuffer, TelemetryParseDispatcher } from "@/lib/chartI
 import { getChartParser } from "@/lib/parseChartData";
 import { captureSessionChunk } from "@/lib/sessionCapture";
 import { formatBytes } from "@/lib/formatters";
+import { publishToAiBridge } from "@/lib/aiBridge";
+import { withResponseFlag } from "@/lib/bleTypes";
+import { setAiBridgeBleTarget } from "@/lib/tauri";
+import { useAiBridgeStore } from "@/stores/aiBridgeStore";
 import { useShallow } from "zustand/react/shallow";
 
 /**
@@ -39,14 +43,18 @@ export function useBluetoothEvents() {
     const frameStream = frameStreamRef.current;
     const parseDispatcher = parseDispatcherRef.current;
     const flushBatch = () => {
-      if (batchLinesRef.current.length > 0) {
-        addLines(batchLinesRef.current);
+      const incomingLines = batchLinesRef.current;
+      if (incomingLines.length > 0) {
+        addLines(incomingLines);
         batchLinesRef.current = [];
       }
       const telemetryBatch = telemetryIngestionRef.current.drain();
       if (telemetryBatch.points.length > 0) addChartDataBatch(telemetryBatch.points);
       if (telemetryBatch.success > 0 || telemetryBatch.fail > 0)
         incrementParseCounts(telemetryBatch.success, telemetryBatch.fail);
+      if (useAiBridgeStore.getState().status.running) {
+        publishToAiBridge("ble", incomingLines, telemetryBatch.points, useBluetoothStore.getState().chartConfig);
+      }
       if (batchStatsRef.current.bytes_received > 0 || batchStatsRef.current.bytes_sent > 0) {
         const cur = useBluetoothStore.getState().stats;
         updateStats({
@@ -156,6 +164,24 @@ export function useBluetoothEvents() {
       unlistenStatus.then((fn) => fn());
     };
   }, [addLines, updateStats, setRunning, setConnected, setError, addChartDataBatch, incrementParseCounts]);
+
+  // AI 的 ble.write 写到界面当前选中的可写特征值，选择或写入方式变化时同步给后端
+  useEffect(() => {
+    const sync = (charUuid: string | null, withResponse: boolean | null) =>
+      void setAiBridgeBleTarget(charUuid, withResponse).catch((error) =>
+        console.warn("同步 AI 蓝牙写入目标失败", error)
+      );
+    const initial = useBluetoothStore.getState();
+    sync(initial.writeCharUuid, withResponseFlag(initial.sendSettings.withResponse));
+    return useBluetoothStore.subscribe((state, previous) => {
+      if (
+        state.writeCharUuid !== previous.writeCharUuid ||
+        state.sendSettings.withResponse !== previous.sendSettings.withResponse
+      ) {
+        sync(state.writeCharUuid, withResponseFlag(state.sendSettings.withResponse));
+      }
+    });
+  }, []);
 }
 
 export function useBluetoothStats() {

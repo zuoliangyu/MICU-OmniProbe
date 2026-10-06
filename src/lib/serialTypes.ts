@@ -105,52 +105,6 @@ export interface SerialStatusEvent {
   error: string | null;
 }
 
-export interface AiBridgeStatus {
-  running: boolean;
-  port: number;
-  allowWrite: boolean;
-  clients: number;
-  droppedBatches: number;
-}
-
-export interface AiTelemetryChannel {
-  key: string;
-  name: string;
-  unit: string | null;
-}
-
-export interface AiTelemetrySample {
-  timestamp: number;
-  values: Record<string, number>;
-}
-
-export interface AiTelemetryBatch {
-  source: "serial";
-  sampleRateHz: number;
-  channels: AiTelemetryChannel[];
-  samples: AiTelemetrySample[];
-}
-
-export interface AiTextLine {
-  timestamp: number;
-  direction: "rx" | "tx";
-  text: string;
-  truncated: boolean;
-}
-
-export interface AiTextBatch {
-  source: "serial";
-  lines: AiTextLine[];
-}
-
-export const DEFAULT_AI_BRIDGE_STATUS: AiBridgeStatus = {
-  running: false,
-  port: 0,
-  allowWrite: false,
-  clients: 0,
-  droppedBatches: 0,
-};
-
 /**
  * Serial line (extends RttLine for reuse)
  */

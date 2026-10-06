@@ -5,24 +5,42 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { useLogStore } from "@/stores/logStore";
-import { useSerialStore } from "@/stores/serialStore";
+import { useAiBridgeStore } from "@/stores/aiBridgeStore";
+import { AI_SOURCE_LABELS, type AiSource } from "@/lib/aiBridge";
 import { getAiBridgeStatus, setAiBridgeWriteEnabled, startAiBridge, stopAiBridge } from "@/lib/tauri";
-import { useShallow } from "zustand/react/shallow";
 
+// 沿用最早串口版本的存储键，升级后保留用户设置的端口
 const PORT_KEY = "serial_ai_bridge_port";
 const SKILL_URL = "https://github.com/zuoliangyu/MICU-OmniProbe/tree/main/skills/micu-omniprobe-ai";
 
-export function AiBridgeControl() {
-  const { status, parsingEnabled, setStatus } = useSerialStore(
-    useShallow((state) => ({
-      status: state.aiBridgeStatus,
-      parsingEnabled: state.chartConfig.enabled,
-      setStatus: state.setAiBridgeStatus,
-    }))
-  );
+const WRITE_TARGET_TEXT: Record<AiSource, { title: string; hint: string }> = {
+  serial: { title: "允许 AI 写串口", hint: "默认关闭；开启后单条最多 1024 字节" },
+  rtt: { title: "允许 AI 写 RTT 下行通道", hint: "默认关闭；固件需调用 SEGGER_RTT_Read 读取" },
+  ble: { title: "允许 AI 写蓝牙特征值", hint: "默认关闭；写入当前选中的可写特征值" },
+};
+
+function savedPort(): number {
+  const value = Number(localStorage.getItem(PORT_KEY));
+  return Number.isInteger(value) && value >= 1024 ? value : 8765;
+}
+
+interface AiBridgeControlProps {
+  source: AiSource;
+  /** 当前工作台是否启用了数据解析；未启用时 AI 只能收到文本行 */
+  parsingEnabled: boolean;
+}
+
+export function AiBridgeControl({ source, parsingEnabled }: AiBridgeControlProps) {
+  const status = useAiBridgeStore((state) => state.status);
+  const setStatus = useAiBridgeStore((state) => state.setStatus);
   const addLog = useLogStore((state) => state.addLog);
-  const [port, setPort] = useState(() => localStorage.getItem(PORT_KEY) ?? "8765");
+  const [port, setPort] = useState(() => String(savedPort()));
   const [busy, setBusy] = useState(false);
+  const label = AI_SOURCE_LABELS[source];
+  const writeText = WRITE_TARGET_TEXT[source];
+  const otherWritable = (Object.keys(AI_SOURCE_LABELS) as AiSource[]).filter(
+    (other) => other !== source && status.allowWrite[other]
+  );
 
   useEffect(() => {
     const refresh = () =>
@@ -44,9 +62,9 @@ export function AiBridgeControl() {
     setBusy(true);
     try {
       localStorage.setItem(PORT_KEY, String(value));
-      setStatus(await startAiBridge(value, false));
+      setStatus(await startAiBridge(value));
       addLog("success", `AI 数据桥接已监听 127.0.0.1:${value}`);
-      if (!parsingEnabled) addLog("warn", "请启用串口数据解析，AI 才能收到标准样本");
+      if (!parsingEnabled) addLog("warn", `${label}未启用数据解析，AI 只能收到文本行，收不到标准样本`);
     } catch (error) {
       addLog("error", `AI 数据桥接启动失败: ${error}`);
     } finally {
@@ -68,8 +86,8 @@ export function AiBridgeControl() {
 
   const handleWriteToggle = async (allowWrite: boolean) => {
     try {
-      setStatus(await setAiBridgeWriteEnabled(allowWrite));
-      addLog(allowWrite ? "warn" : "info", allowWrite ? "已允许 AI 发送串口命令" : "已禁止 AI 发送串口命令");
+      setStatus(await setAiBridgeWriteEnabled(source, allowWrite));
+      addLog(allowWrite ? "warn" : "info", `${allowWrite ? "已允许" : "已禁止"} AI 向${label}发送命令`);
     } catch (error) {
       addLog("error", `更新 AI 写权限失败: ${error}`);
     }
@@ -77,7 +95,7 @@ export function AiBridgeControl() {
 
   const copyCommand = async () => {
     await navigator.clipboard.writeText(
-      `python skills/micu-omniprobe-ai/scripts/client.py watch --port ${status.port || port}`
+      `python skills/micu-omniprobe-ai/scripts/client.py watch --port ${status.port || port} --source ${source}`
     );
     addLog("success", "已复制 AI 数据流监听命令");
   };
@@ -95,7 +113,8 @@ export function AiBridgeControl() {
           <div>
             <div className="text-sm font-medium">AI 数据桥接</div>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              将当前图表解析后的数据以 NDJSON 输出到本机 TCP，AI 与界面看到同一批样本。
+              将{label}文本行和图表解析后的样本以 NDJSON 输出到本机 TCP，AI 与界面看到同一批数据。串口、RTT
+              和蓝牙共用同一端口，按 source 区分。
             </p>
           </div>
 
@@ -125,11 +144,21 @@ export function AiBridgeControl() {
 
           <label className="flex items-center justify-between rounded-[18px] border border-border/60 p-3">
             <span>
-              <span className="block text-xs font-medium">允许 AI 写串口</span>
-              <span className="mt-1 block text-xs text-muted-foreground">默认关闭；开启后单条最多 1024 字节</span>
+              <span className="block text-xs font-medium">{writeText.title}</span>
+              <span className="mt-1 block text-xs text-muted-foreground">{writeText.hint}</span>
             </span>
-            <Switch checked={status.allowWrite} disabled={!status.running} onCheckedChange={handleWriteToggle} />
+            <Switch
+              checked={status.allowWrite[source]}
+              disabled={!status.running}
+              onCheckedChange={handleWriteToggle}
+            />
           </label>
+
+          {otherWritable.length > 0 && (
+            <p className="text-xs text-amber-600">
+              AI 当前还可写入：{otherWritable.map((other) => AI_SOURCE_LABELS[other]).join("、")}
+            </p>
+          )}
 
           {status.running && (
             <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -148,12 +177,12 @@ export function AiBridgeControl() {
   );
 }
 
-export function AiSkillLink() {
-  const activePort = useSerialStore((state) => state.aiBridgeStatus.port);
+export function AiSkillLink({ source }: { source: AiSource }) {
+  const activePort = useAiBridgeStore((state) => state.status.port);
   const addLog = useLogStore((state) => state.addLog);
-  const savedPort = Number(localStorage.getItem(PORT_KEY));
-  const port = activePort || (Number.isInteger(savedPort) && savedPort >= 1024 ? savedPort : 8765);
-  const prompt = `请安装并使用这个 Skill：\n${SKILL_URL}\n\nMICU-OmniProbe AI 数据桥接地址是 127.0.0.1:${port}。\n安装后请先采集并分析数据，未经我确认不要发送串口调参命令。`;
+  const port = activePort || savedPort();
+  const label = AI_SOURCE_LABELS[source];
+  const prompt = `请安装并使用这个 Skill：\n${SKILL_URL}\n\nMICU-OmniProbe AI 数据桥接地址是 127.0.0.1:${port}，本次使用${label}数据（--source ${source}）。\n安装后请先采集并分析数据，未经我确认不要向${label}发送调参命令。`;
 
   const copy = async (text: string, success: string) => {
     try {
