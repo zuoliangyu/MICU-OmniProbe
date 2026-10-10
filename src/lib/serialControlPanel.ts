@@ -1,4 +1,15 @@
 import type { WaveformInterpolation } from "./chartTypes";
+import type { ImuOrientation } from "./imuFusion";
+import {
+  composeOverlay,
+  eulerFromQuaternion,
+  quaternionFromEuler,
+  readQuaternionInput,
+  resolveOverlayQuaternion,
+  type ImuOverlayConfig,
+  type ImuQuaternionInputConfig,
+  type ImuRotationComponent,
+} from "./imuRotation";
 
 export const SERIAL_CONTROL_WIDGET_TYPES = [
   "button",
@@ -135,9 +146,9 @@ export interface SerialYtChartWidget extends SerialControlWidgetBase {
   interpolation: WaveformInterpolation;
 }
 
-export interface SerialImu3dWidget extends SerialControlWidgetBase {
+export interface SerialImu3dWidget extends SerialControlWidgetBase, ImuQuaternionInputConfig, ImuOverlayConfig {
   type: "imu-3d";
-  sourceMode: "euler" | "imu6";
+  sourceMode: "euler" | "imu6" | "quat";
   rollChannel: string;
   pitchChannel: string;
   yawChannel: string;
@@ -444,6 +455,8 @@ const WIDGET_DEFINITIONS: readonly InternalWidgetDefinition[] = [
       rollOffset: 0,
       pitchOffset: 0,
       yawOffset: 0,
+      ...DEFAULT_IMU_QUAT_INPUT,
+      ...defaultImuOverlay(),
       width: 780,
       height: 348,
     }),
@@ -482,6 +495,17 @@ export function isSerialControlWidgetType(value: unknown): value is SerialContro
 }
 
 export function getSerialControlWidgetInputHelp(widget: SerialControlWidget): SerialControlWidgetInputHelp {
+  if (widget.type === "imu-3d" && widget.sourceMode === "quat") {
+    return {
+      ...inputHelp(
+        "四元数直驱读取 W、X、Y、Z 四个分量，自动归一化。",
+        "设备每行输出（JSON）",
+        '{"qw":1,"qx":0,"qy":0,"qz":0}',
+        "同一采样帧 → qw/qx/qy/qz → 3D 姿态"
+      ),
+      docId: widget.type,
+    };
+  }
   if (widget.type === "imu-3d" && widget.sourceMode === "imu6") {
     return {
       ...inputHelp(
@@ -513,6 +537,38 @@ export function createSerialControlWidget(type: SerialControlWidgetType): Serial
     format: "text" as const,
   };
   return { ...base, ...definition.defaults(), type } as SerialControlWidget;
+}
+
+const DEFAULT_IMU_QUAT_INPUT: ImuQuaternionInputConfig = {
+  quatWChannel: "qw",
+  quatXChannel: "qx",
+  quatYChannel: "qy",
+  quatZChannel: "qz",
+};
+
+const constantComponent = (value: number): ImuRotationComponent => ({ source: "constant", channel: "", value });
+
+function defaultImuOverlay(): ImuOverlayConfig {
+  return {
+    overlayEnabled: false,
+    overlayMode: "euler",
+    overlayOrder: "local",
+    overlayAngleUnit: "deg",
+    overlayEuler: [0, 0, 0].map(constantComponent),
+    overlayQuat: [1, 0, 0, 0].map(constantComponent),
+  };
+}
+
+function normalizeRotationComponents(value: unknown, defaults: ImuRotationComponent[]): ImuRotationComponent[] {
+  const items = Array.isArray(value) ? value : [];
+  return defaults.map((fallback, index) => {
+    const item = (items[index] ?? {}) as Partial<ImuRotationComponent>;
+    return {
+      source: item.source === "channel" ? "channel" : "constant",
+      channel: stringValue(item.channel),
+      value: finiteNumber(item.value, fallback.value),
+    };
+  });
 }
 
 function finiteNumber(value: unknown, fallback: number) {
@@ -715,7 +771,7 @@ export function parseSerialControlPanel(raw: unknown): SerialControlPanelConfig 
         {
           ...base,
           type,
-          sourceMode: widget.sourceMode === "imu6" ? "imu6" : "euler",
+          sourceMode: widget.sourceMode === "imu6" || widget.sourceMode === "quat" ? widget.sourceMode : "euler",
           rollChannel: stringValue(widget.rollChannel, "roll"),
           pitchChannel: stringValue(widget.pitchChannel, "pitch"),
           yawChannel: stringValue(widget.yawChannel, "yaw"),
@@ -735,6 +791,16 @@ export function parseSerialControlPanel(raw: unknown): SerialControlPanelConfig 
           rollOffset: finiteNumber(widget.rollOffset, 0),
           pitchOffset: finiteNumber(widget.pitchOffset, 0),
           yawOffset: finiteNumber(widget.yawOffset, 0),
+          quatWChannel: stringValue(widget.quatWChannel, DEFAULT_IMU_QUAT_INPUT.quatWChannel),
+          quatXChannel: stringValue(widget.quatXChannel, DEFAULT_IMU_QUAT_INPUT.quatXChannel),
+          quatYChannel: stringValue(widget.quatYChannel, DEFAULT_IMU_QUAT_INPUT.quatYChannel),
+          quatZChannel: stringValue(widget.quatZChannel, DEFAULT_IMU_QUAT_INPUT.quatZChannel),
+          overlayEnabled: widget.overlayEnabled === true,
+          overlayMode: widget.overlayMode === "quat" ? "quat" : "euler",
+          overlayOrder: widget.overlayOrder === "world" ? "world" : "local",
+          overlayAngleUnit: widget.overlayAngleUnit === "rad" ? "rad" : "deg",
+          overlayEuler: normalizeRotationComponents(widget.overlayEuler, defaultImuOverlay().overlayEuler),
+          overlayQuat: normalizeRotationComponents(widget.overlayQuat, defaultImuOverlay().overlayQuat),
         },
       ];
     }
@@ -844,6 +910,36 @@ export function resolveSerialImuAngles(
   const factor = widget.angleUnit === "rad" ? 180 / Math.PI : 1;
   const raw = { roll: source[0] * factor, pitch: source[1] * factor, yaw: source[2] * factor };
   return { raw, display: applySerialImuOffsets(raw, widget) };
+}
+
+/**
+ * 输入姿态（欧拉角 / 六轴融合 / 四元数）合成叠加旋转后的欧拉角，归零前。
+ * missing 列出当前帧缺失的通道 key，用于提示绑定错误。
+ */
+export function resolveSerialImuPose(
+  widget: SerialImu3dWidget,
+  values: Record<string, number>,
+  fused: ImuOrientation | null
+): { raw: ImuOrientation | null; missing: string[] } {
+  const missing: string[] = [];
+  let euler: ImuOrientation | null = null;
+  let quat = null;
+  if (widget.sourceMode === "quat") {
+    quat = readQuaternionInput(widget, values, missing);
+  } else if (widget.sourceMode === "imu6") {
+    euler = fused;
+  } else {
+    euler = resolveSerialImuAngles(widget, values)?.raw ?? null;
+    for (const key of [widget.rollChannel, widget.pitchChannel, widget.yawChannel]) {
+      if (!Number.isFinite(values[key])) missing.push(key || "（未绑定）");
+    }
+  }
+  if (!widget.overlayEnabled) return { raw: quat ? eulerFromQuaternion(quat) : euler, missing };
+
+  const overlay = resolveOverlayQuaternion(widget, values, missing);
+  const input = quat ?? (euler && quaternionFromEuler(euler));
+  if (!input || !overlay) return { raw: null, missing };
+  return { raw: eulerFromQuaternion(composeOverlay(input, overlay, widget.overlayOrder)), missing };
 }
 
 function quantize(value: number, min: number, max: number, step: number) {

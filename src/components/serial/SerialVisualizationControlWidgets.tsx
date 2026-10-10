@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import type { ImuRotationComponent } from "@/lib/imuRotation";
 import { useChartWorkspaceControls } from "@/hooks/useChartWorkspaceHost";
 import type { ChartConfig, ChartDataPoint, ChartSeries } from "@/lib/chartTypes";
 import {
@@ -142,7 +144,7 @@ export function SerialVisualizationWidgetEditor({
             <Label>数据源</Label>
             <Select
               value={widget.sourceMode}
-              onValueChange={(sourceMode: "euler" | "imu6") => onChange({ ...widget, sourceMode })}
+              onValueChange={(sourceMode: SerialImu3dWidget["sourceMode"]) => onChange({ ...widget, sourceMode })}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -150,6 +152,7 @@ export function SerialVisualizationWidgetEditor({
               <SelectContent>
                 <SelectItem value="euler">欧拉角直驱</SelectItem>
                 <SelectItem value="imu6">原始六轴融合</SelectItem>
+                <SelectItem value="quat">四元数直驱</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -190,6 +193,25 @@ export function SerialVisualizationWidgetEditor({
                   </SelectContent>
                 </Select>
               </div>
+            </>
+          ) : widget.sourceMode === "quat" ? (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                {(["quatWChannel", "quatXChannel", "quatYChannel", "quatZChannel"] as const).map((key, index) => (
+                  <div key={key} className="space-y-1.5">
+                    <Label htmlFor={`${widget.id}-${key}`}>{"WXYZ"[index]} 通道</Label>
+                    <Input
+                      id={`${widget.id}-${key}`}
+                      list="serial-control-channels"
+                      value={widget[key]}
+                      onChange={(event) => onChange({ ...widget, [key]: event.target.value })}
+                    />
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                按分量分别绑定，设备按 xyzw 还是 wxyz 顺序输出都可以；自动归一化，全零时视为无效。
+              </p>
             </>
           ) : (
             <>
@@ -272,9 +294,141 @@ export function SerialVisualizationWidgetEditor({
             </>
           )}
           <p className="text-xs text-muted-foreground">按 X=Roll、Y=Pitch、Z=Yaw 映射；运行模式可用当前姿态归零。</p>
+          <ImuOverlayEditor widget={widget} onChange={onChange} />
         </div>
       )}
     </>
+  );
+}
+
+const OVERLAY_EULER_LABELS = ["Roll / X", "Pitch / Y", "Yaw / Z"];
+const OVERLAY_QUAT_LABELS = ["W", "X", "Y", "Z"];
+
+/** 叠加旋转：在输入姿态上再合成一个由通道或固定值给出的旋转，例如云台电机角、机械臂上一级关节 */
+function ImuOverlayEditor({
+  widget,
+  onChange,
+}: {
+  widget: SerialImu3dWidget;
+  onChange: (widget: SerialImu3dWidget) => void;
+}) {
+  const key = widget.overlayMode === "quat" ? "overlayQuat" : "overlayEuler";
+  const labels = widget.overlayMode === "quat" ? OVERLAY_QUAT_LABELS : OVERLAY_EULER_LABELS;
+  const updateComponent = (index: number, patch: Partial<ImuRotationComponent>) =>
+    onChange({
+      ...widget,
+      [key]: widget[key].map((component, itemIndex) => (itemIndex === index ? { ...component, ...patch } : component)),
+    });
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border/60 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Label htmlFor={`${widget.id}-overlay`}>叠加旋转</Label>
+          <p className="text-xs text-muted-foreground">再合成一个来自通道或固定值的旋转，如云台电机角、上一级关节。</p>
+        </div>
+        <Switch
+          id={`${widget.id}-overlay`}
+          checked={widget.overlayEnabled}
+          onCheckedChange={(overlayEnabled) => onChange({ ...widget, overlayEnabled })}
+        />
+      </div>
+      {widget.overlayEnabled && (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>表示方式</Label>
+              <Select
+                value={widget.overlayMode}
+                onValueChange={(overlayMode: SerialImu3dWidget["overlayMode"]) => onChange({ ...widget, overlayMode })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="euler">欧拉角</SelectItem>
+                  <SelectItem value="quat">四元数</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {widget.overlayMode === "euler" && (
+              <div className="space-y-1.5">
+                <Label>角度单位</Label>
+                <Select
+                  value={widget.overlayAngleUnit}
+                  onValueChange={(overlayAngleUnit: "deg" | "rad") => onChange({ ...widget, overlayAngleUnit })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="deg">角度 (°)</SelectItem>
+                    <SelectItem value="rad">弧度 (rad)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label>叠加位置</Label>
+            <Select
+              value={widget.overlayOrder}
+              onValueChange={(overlayOrder: SerialImu3dWidget["overlayOrder"]) => onChange({ ...widget, overlayOrder })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="local">本体坐标系（输入 × 叠加）</SelectItem>
+                <SelectItem value="world">世界坐标系（叠加 × 输入）</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              本体：绕传感器自身的轴再转，适合安装角补偿；世界：绕固定的外部轴转，适合叠加底座或上一级关节的转角。
+            </p>
+          </div>
+          <div className="space-y-2">
+            {widget[key].map((component, index) => (
+              <div key={labels[index]} className="grid grid-cols-[3.5rem_6rem_minmax(0,1fr)] items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground">{labels[index]}</span>
+                <Select
+                  value={component.source}
+                  onValueChange={(source: ImuRotationComponent["source"]) => updateComponent(index, { source })}
+                >
+                  <SelectTrigger aria-label={`${labels[index]} 来源`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="constant">固定值</SelectItem>
+                    <SelectItem value="channel">通道</SelectItem>
+                  </SelectContent>
+                </Select>
+                {component.source === "channel" ? (
+                  <Input
+                    aria-label={`${labels[index]} 通道`}
+                    list="serial-control-channels"
+                    value={component.channel}
+                    placeholder="通道 key"
+                    onChange={(event) => updateComponent(index, { channel: event.target.value })}
+                  />
+                ) : (
+                  <Input
+                    aria-label={`${labels[index]} 数值`}
+                    type="number"
+                    step="any"
+                    value={component.value}
+                    onChange={(event) => updateComponent(index, { value: Number(event.target.value) })}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+          {widget.overlayMode === "quat" && (
+            <p className="text-xs text-muted-foreground">叠加四元数同样自动归一化，默认 1, 0, 0, 0 表示不旋转。</p>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

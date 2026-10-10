@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ChartDataPoint } from "@/lib/chartTypes";
 import { estimateGyroBias, ImuFusionProcessor, type ImuOrientation } from "@/lib/imuFusion";
-import { applySerialImuOffsets, resolveSerialImuAngles, type SerialImu3dWidget } from "@/lib/serialControlPanel";
+import { applySerialImuOffsets, resolveSerialImuPose, type SerialImu3dWidget } from "@/lib/serialControlPanel";
 import { cn } from "@/lib/utils";
 
 interface SerialImu3DProps {
@@ -11,6 +11,12 @@ interface SerialImu3DProps {
   yaw: number;
   ready: boolean;
 }
+
+const SOURCE_MODE_LABELS: Record<SerialImu3dWidget["sourceMode"], string> = {
+  euler: "欧拉角直驱",
+  imu6: "六轴融合",
+  quat: "四元数直驱",
+};
 
 const FACES = [
   ["前", "translateZ(48px)", "bg-blue-600/90"],
@@ -46,17 +52,29 @@ interface SerialImu3DControlProps {
 
 export function SerialImu3DControl({ widget, chartData, latestValues, onUpdate }: SerialImu3DControlProps) {
   const fused = useImu6Fusion(widget, chartData);
-  const euler = widget.sourceMode === "euler" ? resolveSerialImuAngles(widget, latestValues) : null;
-  const raw = widget.sourceMode === "imu6" ? fused : (euler?.raw ?? null);
+  const { raw, missing } = resolveSerialImuPose(widget, latestValues, fused);
   const display = raw ? applySerialImuOffsets(raw, widget) : { roll: 0, pitch: 0, yaw: 0 };
+  // 还没收到任何数据时不提示缺通道
+  const missingHint =
+    !raw && missing.length > 0 && Object.keys(latestValues).length > 0
+      ? `当前帧缺少通道：${[...new Set(missing)].join("、")}`
+      : "";
 
   return (
     <div className="serial-imu-container space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium text-foreground">{widget.label}</span>
         <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
-          {widget.sourceMode === "imu6" ? "六轴融合" : "欧拉角直驱"}
+          {SOURCE_MODE_LABELS[widget.sourceMode]}
         </span>
+        {widget.overlayEnabled && (
+          <span
+            className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground"
+            title={widget.overlayOrder === "local" ? "本体坐标系：输入 × 叠加" : "世界坐标系：叠加 × 输入"}
+          >
+            叠加旋转
+          </span>
+        )}
         <div className="ml-auto flex flex-wrap gap-2">
           {widget.sourceMode === "imu6" && (
             <Button
@@ -91,6 +109,7 @@ export function SerialImu3DControl({ widget, chartData, latestValues, onUpdate }
           无磁力计时 Yaw 会逐渐漂移
         </div>
       )}
+      {missingHint && <div className="text-xs text-amber-600">{missingHint}</div>}
       <SerialImu3D {...display} ready={Boolean(raw)} />
     </div>
   );

@@ -14,6 +14,7 @@ try {
     renderSerialControlCommand,
     renderSerialJoystickCommand,
     resolveSerialImuAngles,
+    resolveSerialImuPose,
     clampFloatingPanelPosition,
     createSerialControlWidget,
     getSerialControlWidgetInputHelp,
@@ -204,6 +205,31 @@ try {
     ),
     null
   );
+  // 四元数直驱与叠加旋转：旧配置没有这些字段时按默认（关闭叠加）补齐
+  const imuWidget = parseSerialControlPanel({ version: 4, widgets: [{ type: "imu-3d", sourceMode: "quat" }] })
+    .widgets[0];
+  assert.equal(imuWidget.sourceMode, "quat");
+  assert.equal(imuWidget.overlayEnabled, false);
+  assert.deepEqual(
+    imuWidget.overlayQuat.map(({ value }) => value),
+    [1, 0, 0, 0]
+  );
+  const yawOnly = resolveSerialImuPose(imuWidget, { qw: Math.SQRT1_2, qx: 0, qy: 0, qz: Math.SQRT1_2 }, null);
+  assert.ok(Math.abs(yawOnly.raw.yaw - 90) < 1e-6);
+  assert.deepEqual(resolveSerialImuPose(imuWidget, { qw: 1 }, null), { raw: null, missing: ["qx", "qy", "qz"] });
+  const withMotor = {
+    ...imuWidget,
+    sourceMode: "euler",
+    overlayEnabled: true,
+    overlayEuler: [
+      { source: "constant", channel: "", value: 0 },
+      { source: "constant", channel: "", value: 0 },
+      { source: "channel", channel: "motor", value: 0 },
+    ],
+  };
+  const stacked = resolveSerialImuPose(withMotor, { roll: 0, pitch: 0, yaw: 20, motor: 30 }, null);
+  assert.ok(Math.abs(stacked.raw.yaw - 50) < 1e-6, "同轴叠加角度相加");
+  assert.deepEqual(resolveSerialImuPose(withMotor, { roll: 0, pitch: 0, yaw: 20 }, null).missing, ["motor"]);
   const fusionConfig = {
     accelXChannel: "ax",
     accelYChannel: "ay",
