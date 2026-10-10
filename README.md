@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.1.2-blue" alt="Version 3.1.2" />
+  <img src="https://img.shields.io/badge/version-3.2.0-blue" alt="Version 3.2.0" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey" alt="Windows Linux macOS" />
 </p>
@@ -71,6 +71,15 @@ MICU-OmniProbe 把嵌入式开发中经常分散在多个软件里的工作流�
 </table>
 
 > 截图均使用应用内置的“模拟数据”生成，无需连接硬件即可复现。
+
+## 3.2.0 更新重点
+
+3.2.0 让日志更好找、RTT 更省心、IMU 能表达多关节姿态：
+
+- **文本区定位栏**：串口、RTT、蓝牙和日志分析都能按时间跳到最近的一行，或按文本 / HEX 字节在匹配行之间上下跳转，不过滤前后文
+- **Bootloader 与 App 不用重连**：两份固件各有 RTT 控制块时，空闲时自动发现并切换到正在输出的那个
+- **IMU 支持四元数**：W / X / Y / Z 分量分别绑定通道，自动归一化
+- **叠加旋转**：在输入姿态上再合成一个来自通道或固定值的旋转，可选本体或世界坐标系，调试云台、机械臂更直观
 
 ## 3.1.2 更新重点
 
@@ -374,7 +383,7 @@ Windows 也可以直接运行：
 
 ## 版本、反馈与贡献
 
-- 当前版本：`3.1.2`
+- 当前版本：`3.2.0`
 - 完整变化：[CHANGELOG.md](CHANGELOG.md)
 - 问题与建议：[GitHub Issues](https://github.com/zuoliangyu/MICU-OmniProbe/issues)
 - 项目仓库：[zuoliangyu/MICU-OmniProbe](https://github.com/zuoliangyu/MICU-OmniProbe)
