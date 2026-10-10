@@ -1,8 +1,11 @@
 use crate::error::{AppError, AppResult};
 use crate::state::{AppState, RttState};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use probe_rs::config::MemoryRegion;
 use probe_rs::rtt::{Error as RttLibError, Rtt, ScanRegion};
+use probe_rs::{Core, MemoryInterface};
 use serde::{Deserialize, Serialize};
+use std::ops::Range;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, State};
@@ -373,7 +376,7 @@ fn attach_rtt(session: &SharedSession, core_index: usize, spec: &ScanSpec, sourc
         .map_err(|e| AppError::RttError(e.to_string()))?;
 
     let attach_start = Instant::now();
-    let mut rtt = Rtt::attach_region(&mut core, &spec.region).map_err(|e| {
+    let mut rtt = locate_rtt(&mut core, &spec.region, None).map_err(|e| {
         log::error!("RTT 附加失败 (耗时 {:?}): {}", attach_start.elapsed(), e);
         AppError::RttError(describe_attach_error(&e, spec))
     })?;
@@ -447,6 +450,9 @@ impl Poller {
         // 第一次失败的时间；按时长而不是次数判断失联，目标复位、长时间启动都能等到
         let mut failing_since: Option<Instant> = None;
         let mut last_warn = Instant::now();
+        // 最近一次收到数据（或附加）的时间，以及下一次允许做切换检查的时间
+        let mut last_activity = Instant::now();
+        let mut next_switch_check = Instant::now();
 
         let error = loop {
             // 错过的周期直接跳过，不补发
@@ -476,8 +482,21 @@ impl Poller {
                 }
             }
 
-            match self.poll_once(&mut rtt, &mut buffer) {
+            // 暂停读取模式下目标不支持后台访问，不在运行中扫描内存
+            let check_switch = !self.halt_on_read
+                && last_activity.elapsed() >= SWITCH_CHECK_IDLE
+                && Instant::now() >= next_switch_check;
+            let poll_started = Instant::now();
+            let polled = self.poll_once(&mut rtt, &mut buffer, check_switch);
+            if check_switch {
+                // 整片扫描的耗时随 RAM 大小和探针速度变化，按耗时拉开间隔，避免把探针占满
+                next_switch_check = Instant::now() + SWITCH_CHECK_IDLE.max(poll_started.elapsed() * 10);
+            }
+            match polled {
                 Ok(outcome) => {
+                    if !outcome.chunks.is_empty() || outcome.reattached.is_some() {
+                        last_activity = Instant::now();
+                    }
                     if failing_since.take().is_some() || outcome.reattached.is_some() {
                         self.emit_status(true, None, Some("attached"), outcome.reattached);
                     }
@@ -525,8 +544,14 @@ impl Poller {
         log::info!("RTT 轮询任务已完全结束");
     }
 
-    /// 执行一次 RTT 轮询：必要时重新附加，读取所有上行通道，再写出排队的下行数据
-    fn poll_once(&mut self, rtt: &mut Option<Rtt>, buffer: &mut [u8]) -> Result<PollOutcome, PollError> {
+    /// 执行一次 RTT 轮询：必要时重新附加，读取所有上行通道，再写出排队的下行数据。
+    /// check_switch 为真且本轮没有数据时，顺带检查固件是否换了控制块。
+    fn poll_once(
+        &mut self,
+        rtt: &mut Option<Rtt>,
+        buffer: &mut [u8],
+        check_switch: bool,
+    ) -> Result<PollOutcome, PollError> {
         let Some(mut session_guard) = self.session.try_lock_for(Duration::from_millis(500)) else {
             log::debug!("无法获取 RTT session 锁（可能被其他操作占用）");
             return Err(PollError::Busy);
@@ -582,6 +607,30 @@ impl Poller {
 
         match result {
             Ok(chunks) => {
+                if chunks.is_empty() && check_switch && outcome.reattached.is_none() {
+                    match self.check_switch(&mut core, attached) {
+                        SwitchCheck::Keep => {}
+                        SwitchCheck::Lost => {
+                            log::info!("RTT 控制块 0x{:08X} 已被覆盖，重新查找", self.control_block);
+                            *rtt = None;
+                        }
+                        SwitchCheck::To(mut next) => {
+                            log::info!(
+                                "RTT 控制块 0x{:08X} 已停用，切换到有数据的 0x{:08X}",
+                                self.control_block,
+                                next.ptr()
+                            );
+                            self.control_block = next.ptr();
+                            let located_by = format!("控制块切换 (0x{:08X})", next.ptr());
+                            outcome.reattached = Some(channel_info(&mut next, located_by, self.session_source));
+                            self.rtt_state
+                                .down
+                                .lock()
+                                .reset(next.down_channels().iter().map(|c| c.number()).collect());
+                            *rtt = Some(next);
+                        }
+                    }
+                }
                 outcome.chunks = chunks;
                 Ok(outcome)
             }
@@ -621,8 +670,127 @@ impl Poller {
                 self.control_block
             )));
         };
-        Rtt::attach_region(core, &region).map_err(|e| PollError::Transient(describe_attach_error(&e, &self.spec)))
+        locate_rtt(core, &region, Some(self.control_block))
+            .map_err(|e| PollError::Transient(describe_attach_error(&e, &self.spec)))
     }
+
+    /// 长时间没有数据时检查控制块是否已换人。Bootloader 跳转 App（或复位回 Bootloader）后，
+    /// 旧控制块常常原样留在 RAM 里：读起来不报错，只是再也不会有新数据。
+    fn check_switch(&self, core: &mut Core, current: &Rtt) -> SwitchCheck {
+        let mut id = [0u8; Rtt::RTT_ID.len()];
+        if core.read(current.ptr(), &mut id).is_err() {
+            // 读不到交给下一轮正常读取去判断失联
+            return SwitchCheck::Keep;
+        }
+        if id != Rtt::RTT_ID {
+            return SwitchCheck::Lost;
+        }
+        // 指定地址 / ELF 模式由用户给定了位置，只在原控制块失效时才去别处找
+        if matches!(self.spec.region, ScanRegion::Exact(_)) {
+            return SwitchCheck::Keep;
+        }
+        let Ok(addrs) = find_control_blocks(core, &self.spec.region) else {
+            return SwitchCheck::Keep;
+        };
+        for addr in addrs.into_iter().filter(|addr| *addr != current.ptr()) {
+            if let Ok(mut rtt) = Rtt::attach_at(core, addr) {
+                if has_pending_data(core, &mut rtt) {
+                    return SwitchCheck::To(rtt);
+                }
+            }
+        }
+        SwitchCheck::Keep
+    }
+}
+
+/// 空闲检查的结论
+enum SwitchCheck {
+    Keep,
+    /// 当前控制块已被覆盖，下一轮重新查找
+    Lost,
+    /// 另一个控制块里有待读数据，固件已换用它
+    To(Rtt),
+}
+
+/// 连续多久没有数据才检查控制块是否切换
+const SWITCH_CHECK_IDLE: Duration = Duration::from_secs(1);
+
+/// 在内存里找出全部控制块的偏移。probe-rs 的扫描每段内存只取第一个，
+/// Bootloader 和 App 各有一个控制块时会一直附加到地址较低、可能早已停用的那个。
+fn control_block_offsets(mem: &[u8]) -> impl Iterator<Item = usize> + '_ {
+    mem.windows(Rtt::RTT_ID.len())
+        .enumerate()
+        .filter(|(_, window)| *window == Rtt::RTT_ID)
+        .map(|(offset, _)| offset)
+}
+
+/// 在扫描区域内找出全部控制块地址
+fn find_control_blocks(core: &mut Core, region: &ScanRegion) -> Result<Vec<u64>, RttLibError> {
+    let ranges: Vec<Range<u64>> = match region {
+        ScanRegion::Exact(addr) => return Ok(vec![*addr]),
+        ScanRegion::Ram => core
+            .memory_regions()
+            .filter_map(MemoryRegion::as_ram_region)
+            .filter(|r| !r.is_alias)
+            .map(|r| r.range.clone())
+            .collect(),
+        ScanRegion::Ranges(ranges) => ranges.clone(),
+    };
+    if ranges.is_empty() {
+        return Err(RttLibError::NoControlBlockLocation);
+    }
+    let mut found = Vec::new();
+    let mut read_error = None;
+    for range in ranges {
+        let Ok(len) = usize::try_from(range.end.saturating_sub(range.start)) else {
+            continue;
+        };
+        let mut mem = vec![0u8; len];
+        // 与 probe-rs 一致：某段 RAM 读不到（例如低功耗下关闭）时跳过，继续扫其余段
+        if let Err(e) = core.read(range.start, &mut mem) {
+            read_error = Some(e);
+            continue;
+        }
+        found.extend(control_block_offsets(&mem).map(|offset| range.start + offset as u64));
+    }
+    match (found.is_empty(), read_error) {
+        (true, Some(e)) => Err(RttLibError::Probe(e)),
+        (true, None) => Err(RttLibError::ControlBlockNotFound),
+        _ => Ok(found),
+    }
+}
+
+/// 有上行通道存着未读数据，说明固件正在往这个控制块里写
+fn has_pending_data(core: &mut Core, rtt: &mut Rtt) -> bool {
+    let mut probe = [0u8; 1];
+    rtt.up_channels()
+        .iter_mut()
+        .any(|ch| ch.peek(core, &mut probe).is_ok_and(|n| n > 0))
+}
+
+/// 查找并附加控制块。多个控制块并存时选固件正在使用的那个：
+/// 优先有待读数据的，其次是 prefer（上次附加的地址），最后取第一个。
+fn locate_rtt(core: &mut Core, region: &ScanRegion, prefer: Option<u64>) -> Result<Rtt, RttLibError> {
+    let addrs = find_control_blocks(core, region)?;
+    if let [addr] = addrs[..] {
+        return Rtt::attach_at(core, addr);
+    }
+    let mut fallback: Option<Rtt> = None;
+    let mut last_error = None;
+    for addr in addrs {
+        match Rtt::attach_at(core, addr) {
+            Ok(mut rtt) => {
+                if has_pending_data(core, &mut rtt) {
+                    return Ok(rtt);
+                }
+                if fallback.is_none() || prefer == Some(addr) {
+                    fallback = Some(rtt);
+                }
+            }
+            Err(e) => last_error = Some(e),
+        }
+    }
+    fallback.ok_or(last_error.unwrap_or(RttLibError::ControlBlockNotFound))
 }
 
 /// 读取所有上行通道，再写出下行队列。出错时返回已读到的数据和错误信息。
@@ -824,6 +992,17 @@ mod tests {
         assert!(multiple.contains("0x20000000") && multiple.contains("多个"));
         let corrupted = describe_attach_error(&RttLibError::ControlBlockCorrupted("bad".into()), &spec);
         assert!(!corrupted.contains("未找到"), "控制块损坏不应被报成未找到");
+    }
+
+    #[test]
+    fn finds_every_control_block_in_one_region() {
+        // Bootloader 和 App 的控制块在同一段 RAM 里：两个都要找到，不能只取第一个
+        let mut mem = vec![0u8; 256];
+        mem[0x10..0x20].copy_from_slice(&Rtt::RTT_ID);
+        mem[0xA4..0xB4].copy_from_slice(&Rtt::RTT_ID);
+        assert_eq!(control_block_offsets(&mem).collect::<Vec<_>>(), vec![0x10, 0xA4]);
+        assert_eq!(control_block_offsets(&[0u8; 64]).count(), 0);
+        assert_eq!(control_block_offsets(&Rtt::RTT_ID[..8]).count(), 0);
     }
 
     #[test]

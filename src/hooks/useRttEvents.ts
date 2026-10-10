@@ -7,7 +7,8 @@ import { TEXT_FRAME_IDLE_MS, TextFrameStream } from "@/lib/dataFraming";
 import { getChartParser } from "@/lib/parseChartData";
 import { captureSessionChunk } from "@/lib/sessionCapture";
 import { formatBytes } from "@/lib/formatters";
-import { decodeRttChunks } from "@/lib/rttStart";
+import { decodeRttChunks, formatHexAddress } from "@/lib/rttStart";
+import { useLogStore } from "@/stores/logStore";
 import { publishToAiBridge } from "@/lib/aiBridge";
 import { useAiBridgeStore } from "@/stores/aiBridgeStore";
 import { useShallow } from "zustand/react/shallow";
@@ -212,6 +213,15 @@ export function useRttEvents() {
       }
       // 启动命令返回前，轮询线程的“已运行”事件不应提前结束启动中状态
       if (running && store.isStarting) return;
+      const address = config?.control_block_address;
+      const previous = store.rttInfo?.control_block_address;
+      if (address != null && previous != null && address !== previous) {
+        // Bootloader 跳转 App 等换了控制块：同样不能把旧固件的半帧拼到新输出上
+        for (const stream of frameStreams.values()) stream.reset();
+        useLogStore
+          .getState()
+          .addLog("info", `RTT 控制块已切换：${formatHexAddress(previous)} → ${formatHexAddress(address)}`);
+      }
       setRunning(running);
       store.setPhase(running ? phase : null);
       if (config) store.applyConfig(config);
