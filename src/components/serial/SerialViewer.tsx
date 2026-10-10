@@ -11,6 +11,8 @@ import { exportTextAsTxt } from "@/lib/exporters";
 import { useShallow } from "zustand/react/shallow";
 import { formatTimestamp } from "@/lib/formatters";
 import { lineMatchesQuery } from "@/lib/lineSearch";
+import { useLineLocator } from "@/hooks/useLineLocator";
+import { LineLocatorBar, LOCATED_LINE_CLASS } from "@/components/ui/line-locator-bar";
 
 interface SerialViewerProps {
   direction?: "rx" | "tx";
@@ -105,12 +107,14 @@ export function SerialViewer({ direction, title, data }: SerialViewerProps) {
     overscan: 15,
   });
 
-  // Auto scroll to bottom
+  const locator = useLineLocator(filteredLines, rowVirtualizer);
+
+  // Auto scroll to bottom（定位到某行后暂停跟随，否则新数据一来就被拉回底部）
   useEffect(() => {
-    if (autoScroll && filteredLines.length > 0) {
+    if (autoScroll && !locator.pinned && filteredLines.length > 0) {
       rowVirtualizer.scrollToIndex(filteredLines.length - 1, { align: "end" });
     }
-  }, [filteredLines.length, autoScroll, rowVirtualizer]);
+  }, [filteredLines.length, autoScroll, locator.pinned, rowVirtualizer]);
 
   const writeToClipboard = useCallback(
     (text: string, label: string) => copyTextToClipboard(text, label, addLog),
@@ -299,6 +303,7 @@ export function SerialViewer({ direction, title, data }: SerialViewerProps) {
                 data-index={virtualRow.index}
                 data-line-index={virtualRow.index}
                 ref={rowVirtualizer.measureElement}
+                className={cn(line.id === locator.locatedId && LOCATED_LINE_CLASS)}
                 style={{
                   position: "absolute",
                   top: 0,
@@ -320,6 +325,7 @@ export function SerialViewer({ direction, title, data }: SerialViewerProps) {
           })}
         </div>
       </div>
+      <LineLocatorBar lines={filteredLines} locator={locator} />
       {contextMenu && (
         <CopyContextMenu
           x={contextMenu.x}

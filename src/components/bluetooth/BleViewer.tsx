@@ -11,6 +11,8 @@ import { formatDataAsHex, formatSerialLineForCopy } from "@/lib/viewerCopy";
 import { useSaveTxtContextMenu } from "@/components/ui/save-txt-context-menu";
 import { useShallow } from "zustand/react/shallow";
 import { lineMatchesQuery } from "@/lib/lineSearch";
+import { useLineLocator } from "@/hooks/useLineLocator";
+import { LineLocatorBar, LOCATED_LINE_CLASS } from "@/components/ui/line-locator-bar";
 
 export function BleViewer() {
   const { autoScroll, showTimestamp, showDirectionPrefix, running, displayMode, connected, lines, searchQuery } =
@@ -63,11 +65,14 @@ export function BleViewer() {
     overscan: 15,
   });
 
+  const locator = useLineLocator(filteredLines, rowVirtualizer);
+
+  // 定位到某行后暂停跟随，否则新数据一来就被拉回底部
   useEffect(() => {
-    if (autoScroll && filteredLines.length > 0) {
+    if (autoScroll && !locator.pinned && filteredLines.length > 0) {
       rowVirtualizer.scrollToIndex(filteredLines.length - 1, { align: "end" });
     }
-  }, [filteredLines.length, autoScroll, rowVirtualizer]);
+  }, [filteredLines.length, autoScroll, locator.pinned, rowVirtualizer]);
 
   const emptyMessage = !connected
     ? "请在右侧配置检查器扫描并连接 BLE 设备"
@@ -100,6 +105,7 @@ export function BleViewer() {
                 key={virtualRow.key}
                 data-index={virtualRow.index}
                 ref={rowVirtualizer.measureElement}
+                className={cn(line.id === locator.locatedId && LOCATED_LINE_CLASS)}
                 style={{
                   position: "absolute",
                   top: 0,
@@ -119,6 +125,7 @@ export function BleViewer() {
           })}
         </div>
       </div>
+      <LineLocatorBar lines={filteredLines} locator={locator} />
       {contextMenu}
     </div>
   );
