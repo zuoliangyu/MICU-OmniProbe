@@ -4,6 +4,7 @@ import { ArrowUpFromLine, FolderOpen, Pause, Play, Plug, RotateCw, StepBack, Ste
 import { Button } from "@/components/ui/button";
 import { useDebugStore } from "@/stores/debugStore";
 import { useProbeStore } from "@/stores/probeStore";
+import { useChipStore } from "@/stores/chipStore";
 import { useLogStore } from "@/stores/logStore";
 import {
   debugAttach,
@@ -89,6 +90,7 @@ export function DebugToolbar({ onResetLayout }: DebugToolbarProps) {
         halt_after_attach: true,
       });
       applyCoreState(status.core);
+      useChipStore.getState().addRecentChip(chipName);
       addLog("success", `调试已附加: ${chipName}`);
     });
 

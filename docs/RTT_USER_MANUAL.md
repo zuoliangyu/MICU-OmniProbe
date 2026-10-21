@@ -124,6 +124,32 @@ Bootloader 和 App 都使用 RTT 时，两者的控制块通常在不同地址�
 - "指定地址" 和 "ELF 符号" 模式只在原控制块失效时才重新查找；两份固件交替运行时建议改用自动扫描
 - 开启 "读取时暂停目标" 时不做空闲检查，避免长时间暂停目标
 
+自动切换要等空闲约 1 秒后才检查，所以有两种情况会漏掉 Bootloader 的日志：
+
+- 使用 "指定地址" 或 "ELF 符号" 模式，填的是 App 的控制块地址。复位回到 Bootloader 后 App 的控制块仍完好地留在 RAM 里，工具会一直读这个地址，看不到 Bootloader 的输出
+- Bootloader 运行时间很短（不到 1~2 秒）就跳转。App 启动时清零 RAM 或调用 `SEGGER_RTT_Init()`，Bootloader 还没被读走的日志就没了
+
+想要从 Bootloader 到 App 完整、连续地看到日志，建议让两份固件共用同一个控制块：
+
+1. 在两个工程的分散加载文件（`.sct`）或链接脚本里，在 RAM 末尾划出同一段**不初始化**（`UNINIT` / `NOLOAD`）的区域，并相应缩小普通 RAM 区，避免栈压到这段区域
+2. 两边的 `SEGGER_RTT_Conf.h` 保持一致：通道数、缓冲区大小相同，`SEGGER_RTT_SECTION` 和 `SEGGER_RTT_BUFFER_SECTION` 都放进这段区域，控制块和缓冲区的地址就完全相同
+3. Bootloader 照常调用 `SEGGER_RTT_Init()`；App 已被 Bootloader 初始化过时**不要再次初始化**，否则 Bootloader 尚未读走的日志会被清空：
+
+   ```c
+   #include <string.h>
+
+   /* App 的 main() 开头 */
+   if (memcmp((const void *)_SEGGER_RTT.acID, "SEGGER RTT", 10) != 0) {
+       SEGGER_RTT_Init();   /* 冷启动：控制块还不存在才初始化 */
+   }
+   ```
+
+4. 在工具里改用 "指定地址"，填写这段区域中 `_SEGGER_RTT` 的地址（以 `.map` 文件为准）
+
+两份固件写的都是同一个控制块，复位或跳转都不需要切换，日志从 Bootloader 到 App 连续显示。
+
+> 判断时比较完整的 `"SEGGER RTT"` 标识，而不是只看第一个字符：上电后不初始化区域里是随机数据，只看一个字节可能误判成已初始化。
+
 ### 暂停显示
 
 "暂停显示" 只冻结文本区，数据仍在后台接收、录制和绘图。按钮上会显示暂停期间缓存的行数，点击 "继续" 后一次性补上。停止 RTT 时自动解除暂停。

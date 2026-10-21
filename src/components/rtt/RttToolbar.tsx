@@ -180,6 +180,7 @@ export function RttToolbar() {
 
       setRttCoreCount(target.core_count ?? 1);
       setRttConnected(true);
+      useChipStore.getState().addRecentChip(chipName);
       addLog("success", `RTT 连接成功: ${chipName}`);
     } catch (error) {
       addLog("error", `RTT 连接失败: ${error}`);

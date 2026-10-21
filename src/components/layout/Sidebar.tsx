@@ -43,6 +43,9 @@ export function Sidebar() {
   const selectChip = useChipStore((s) => s.selectChip);
   const setChipInfo = useChipStore((s) => s.setChipInfo);
   const setSearchQuery = useChipStore((s) => s.setSearchQuery);
+  const recentChips = useChipStore((s) => s.recentChips);
+  const addRecentChip = useChipStore((s) => s.addRecentChip);
+  const [chipInputFocused, setChipInputFocused] = useState(false);
 
   const addLog = useLogStore((state) => state.addLog);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -128,6 +131,7 @@ export function Sidebar() {
       const status = await getConnectionStatus();
 
       setConnected(true, status.info, targetInfo);
+      addRecentChip(selectedChip);
 
       addLog("success", `已连接到 ${selectedChip}`);
     } catch (error) {
@@ -170,7 +174,17 @@ export function Sidebar() {
     }, 300);
   };
 
+  // 还没开始搜索（或输入框里就是当前芯片）时，聚焦即列出最近连接成功的芯片
+  const showRecentChips =
+    chipInputFocused &&
+    !connected &&
+    recentChips.length > 0 &&
+    (searchQuery.trim().length < 2 || searchQuery === selectedChip);
+  const chipOptions = showRecentChips ? recentChips : searchResults;
+
   const handleChipSelect = async (chipName: string) => {
+    // 选完收起列表；再次点击输入框时重新聚焦即可展开
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     selectChip(chipName);
     setSearchQuery(chipName);
     setSearchResults([]);
@@ -286,14 +300,21 @@ export function Sidebar() {
                 placeholder="搜索芯片型号..."
                 value={searchQuery}
                 onChange={(e) => handleChipSearch(e.target.value)}
+                onFocus={() => setChipInputFocused(true)}
+                onBlur={() => setChipInputFocused(false)}
                 disabled={connected}
               />
-              {searchResults.length > 0 && (
+              {chipOptions.length > 0 && (
                 <div className="max-h-64 overflow-y-auto rounded-2xl border border-border/70 bg-white/88 shadow-[0_12px_28px_rgba(72,92,140,0.12)] backdrop-blur">
-                  {searchResults.map((chip) => (
+                  {showRecentChips && (
+                    <div className="border-b border-border/50 px-3 py-2 text-xs text-muted-foreground">最近连接</div>
+                  )}
+                  {chipOptions.map((chip) => (
                     <button
                       key={chip}
                       className="w-full border-b border-border/50 px-3 py-2.5 text-left text-sm last:border-b-0 hover:bg-accent/60"
+                      // 按下时不让输入框失焦，否则列表先收起，点击落空
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => handleChipSelect(chip)}
                     >
                       {chip}
