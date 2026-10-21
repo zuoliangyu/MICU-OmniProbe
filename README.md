@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.2.1-blue" alt="Version 3.2.1" />
+  <img src="https://img.shields.io/badge/version-3.2.2-blue" alt="Version 3.2.2" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey" alt="Windows Linux macOS" />
 </p>
@@ -71,6 +71,14 @@ MICU-OmniProbe 把嵌入式开发中经常分散在多个软件里的工作流�
 </table>
 
 > 截图均使用应用内置的“模拟数据”生成，无需连接硬件即可复现。
+
+## 3.2.2 更新重点
+
+3.2.2 省去每次重启后重新输入芯片全称的麻烦：
+
+- **记住连接过的芯片**：烧录、RTT 或调试连接成功后自动记住芯片，最多保留 8 个，重启后仍在
+- **点一下就能选**：点击空白的芯片搜索框即展开「最近连接」列表，选错的芯片因为连不上不会被记住
+- **Bootloader + App 连续日志**：RTT 手册新增两份固件共用同一控制块的配置方法，复位、跳转时日志不再中断
 
 ## 3.2.1 更新重点
 
@@ -390,7 +398,7 @@ Windows 也可以直接运行：
 
 ## 版本、反馈与贡献
 
-- 当前版本：`3.2.1`
+- 当前版本：`3.2.2`
 - 完整变化：[CHANGELOG.md](CHANGELOG.md)
 - 问题与建议：[GitHub Issues](https://github.com/zuoliangyu/MICU-OmniProbe/issues)
 - 项目仓库：[zuoliangyu/MICU-OmniProbe](https://github.com/zuoliangyu/MICU-OmniProbe)
