@@ -3021,7 +3021,7 @@ dependencies = [
 
 [[package]]
 name = "micu-omniprobe"
-version = "3.2.0"
+version = "3.2.1"
 dependencies = [
  "addr2line",
  "base64 0.22.1",

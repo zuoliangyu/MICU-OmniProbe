@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.2.0-blue" alt="Version 3.2.0" />
+  <img src="https://img.shields.io/badge/version-3.2.1-blue" alt="Version 3.2.1" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey" alt="Windows Linux macOS" />
 </p>
@@ -71,6 +71,13 @@ MICU-OmniProbe 把嵌入式开发中经常分散在多个软件里的工作流�
 </table>
 
 > 截图均使用应用内置的“模拟数据”生成，无需连接硬件即可复现。
+
+## 3.2.1 更新重点
+
+3.2.1 让翻看历史日志不再被打断：
+
+- **停在底部才自动滚动**：串口、RTT、蓝牙文本区和串口终端只有停在最底部时才跟随新数据；往上翻看时视图保持不动
+- **一键回到最新**：上翻后右下角出现「回到最新」，点击或手动滚回底部即恢复跟随
 
 ## 3.2.0 更新重点
 
@@ -383,7 +390,7 @@ Windows 也可以直接运行：
 
 ## 版本、反馈与贡献
 
-- 当前版本：`3.2.0`
+- 当前版本：`3.2.1`
 - 完整变化：[CHANGELOG.md](CHANGELOG.md)
 - 问题与建议：[GitHub Issues](https://github.com/zuoliangyu/MICU-OmniProbe/issues)
 - 项目仓库：[zuoliangyu/MICU-OmniProbe](https://github.com/zuoliangyu/MICU-OmniProbe)
