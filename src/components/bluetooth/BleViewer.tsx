@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo, useCallback } from "react";
+import React, { useRef, useMemo, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useBluetoothStore } from "@/stores/bluetoothStore";
 import { useLogStore } from "@/stores/logStore";
@@ -12,6 +12,8 @@ import { useSaveTxtContextMenu } from "@/components/ui/save-txt-context-menu";
 import { useShallow } from "zustand/react/shallow";
 import { lineMatchesQuery } from "@/lib/lineSearch";
 import { useLineLocator } from "@/hooks/useLineLocator";
+import { useFollowBottom } from "@/hooks/useFollowBottom";
+import { JumpToLatestButton } from "@/components/ui/jump-to-latest-button";
 import { LineLocatorBar, LOCATED_LINE_CLASS } from "@/components/ui/line-locator-bar";
 
 export function BleViewer() {
@@ -67,12 +69,8 @@ export function BleViewer() {
 
   const locator = useLineLocator(filteredLines, rowVirtualizer);
 
-  // 定位到某行后暂停跟随，否则新数据一来就被拉回底部
-  useEffect(() => {
-    if (autoScroll && !locator.pinned && filteredLines.length > 0) {
-      rowVirtualizer.scrollToIndex(filteredLines.length - 1, { align: "end" });
-    }
-  }, [filteredLines.length, autoScroll, locator.pinned, rowVirtualizer]);
+  // 停在底部才跟随新数据；定位到某行后也暂停跟随，否则新数据一来就被拉回底部
+  const follow = useFollowBottom(rowVirtualizer, filteredLines.length, autoScroll && !locator.pinned);
 
   const emptyMessage = !connected
     ? "请在右侧配置检查器扫描并连接 BLE 设备"
@@ -86,44 +84,48 @@ export function BleViewer() {
 
   return (
     <div className="flex h-full flex-col">
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto bg-background p-2 font-mono text-xs leading-5"
-        onContextMenu={onContextMenu}
-      >
+      <div className="relative min-h-0 flex-1">
         <div
-          style={{
-            height: `${rowVirtualizer.getTotalSize()}px`,
-            width: "100%",
-            position: "relative",
-          }}
+          ref={scrollRef}
+          onScroll={follow.onScroll}
+          className="h-full overflow-y-auto bg-background p-2 font-mono text-xs leading-5"
+          onContextMenu={onContextMenu}
         >
-          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-            const line = filteredLines[virtualRow.index];
-            return (
-              <div
-                key={virtualRow.key}
-                data-index={virtualRow.index}
-                ref={rowVirtualizer.measureElement}
-                className={cn(line.id === locator.locatedId && LOCATED_LINE_CLASS)}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  transform: `translateY(${virtualRow.start}px)`,
-                }}
-              >
-                <BleLineItem
-                  line={line}
-                  showTimestamp={showTimestamp}
-                  showDirectionPrefix={showDirectionPrefix}
-                  displayMode={displayMode}
-                />
-              </div>
-            );
-          })}
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const line = filteredLines[virtualRow.index];
+              return (
+                <div
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  className={cn(line.id === locator.locatedId && LOCATED_LINE_CLASS)}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <BleLineItem
+                    line={line}
+                    showTimestamp={showTimestamp}
+                    showDirectionPrefix={showDirectionPrefix}
+                    displayMode={displayMode}
+                  />
+                </div>
+              );
+            })}
+          </div>
         </div>
+        {follow.paused && <JumpToLatestButton onClick={follow.jumpToLatest} />}
       </div>
       <LineLocatorBar lines={filteredLines} locator={locator} />
       {contextMenu}

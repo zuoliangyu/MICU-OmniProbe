@@ -11,6 +11,8 @@ import { useViewerSelection, formatRttLineForCopy, copyTextToClipboard, formatDa
 import { exportTextAsTxt } from "@/lib/exporters";
 import { lineMatchesQuery } from "@/lib/lineSearch";
 import { useLineLocator } from "@/hooks/useLineLocator";
+import { useFollowBottom } from "@/hooks/useFollowBottom";
+import { JumpToLatestButton } from "@/components/ui/jump-to-latest-button";
 import { LineLocatorBar, LOCATED_LINE_CLASS } from "@/components/ui/line-locator-bar";
 import { useSaveTxtContextMenu } from "@/components/ui/save-txt-context-menu";
 import { useShallow } from "zustand/react/shallow";
@@ -74,12 +76,8 @@ export function RttViewer() {
 
   const locator = useLineLocator(filteredLines, rowVirtualizer);
 
-  // 自动滚动到底部（定位到某行后暂停跟随，否则新数据一来就被拉回底部）
-  useEffect(() => {
-    if (autoScroll && !locator.pinned && filteredLines.length > 0) {
-      rowVirtualizer.scrollToIndex(filteredLines.length - 1, { align: "end" });
-    }
-  }, [filteredLines.length, autoScroll, locator.pinned, rowVirtualizer]);
+  // 停在底部才跟随新数据；定位到某行后也暂停跟随，否则新数据一来就被拉回底部
+  const follow = useFollowBottom(rowVirtualizer, filteredLines.length, autoScroll && !locator.pinned);
 
   // Ctrl+C：按行号区间从数据重建（不受虚拟化卸载影响）
   const handleCopy = useCallback(
@@ -147,45 +145,54 @@ export function RttViewer() {
 
   return (
     <div className="flex h-full flex-col">
-      <div
-        ref={scrollRef}
-        tabIndex={0}
-        onContextMenu={onContextMenu}
-        className={cn(
-          "min-h-0 flex-1 overflow-y-auto font-mono text-xs leading-5 p-2 bg-background outline-none",
-          highlight && "select-none" // 跨行/全选时关掉原生选区，只留行级高亮，避免两套高亮打架
-        )}
-      >
+      <div className="relative min-h-0 flex-1">
         <div
-          style={{
-            height: `${rowVirtualizer.getTotalSize()}px`,
-            width: "100%",
-            position: "relative",
-          }}
+          ref={scrollRef}
+          tabIndex={0}
+          onScroll={follow.onScroll}
+          onContextMenu={onContextMenu}
+          className={cn(
+            "h-full overflow-y-auto font-mono text-xs leading-5 p-2 bg-background outline-none",
+            highlight && "select-none" // 跨行/全选时关掉原生选区，只留行级高亮，避免两套高亮打架
+          )}
         >
-          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-            const line = filteredLines[virtualRow.index];
-            const selected = !!highlight && virtualRow.index >= highlight.start && virtualRow.index <= highlight.end;
-            return (
-              <div
-                key={virtualRow.key}
-                data-index={virtualRow.index}
-                data-line-index={virtualRow.index}
-                ref={rowVirtualizer.measureElement}
-                className={cn(line.id === locator.locatedId && LOCATED_LINE_CLASS)}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  transform: `translateY(${virtualRow.start}px)`,
-                }}
-              >
-                <RttLineItem line={line} showTimestamp={showTimestamp} displayMode={displayMode} selected={selected} />
-              </div>
-            );
-          })}
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const line = filteredLines[virtualRow.index];
+              const selected = !!highlight && virtualRow.index >= highlight.start && virtualRow.index <= highlight.end;
+              return (
+                <div
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  data-line-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  className={cn(line.id === locator.locatedId && LOCATED_LINE_CLASS)}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <RttLineItem
+                    line={line}
+                    showTimestamp={showTimestamp}
+                    displayMode={displayMode}
+                    selected={selected}
+                  />
+                </div>
+              );
+            })}
+          </div>
         </div>
+        {follow.paused && <JumpToLatestButton onClick={follow.jumpToLatest} />}
       </div>
       <LineLocatorBar lines={filteredLines} locator={locator} />
       {contextMenu}

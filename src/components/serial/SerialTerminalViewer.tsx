@@ -10,6 +10,8 @@ import { loadSendHistory, pushSendHistory } from "@/lib/serialHistory";
 import { exportTextAsTxt } from "@/lib/exporters";
 import { useSaveTxtContextMenu } from "@/components/ui/save-txt-context-menu";
 import { copyTextToClipboard } from "@/lib/viewerCopy";
+import { useFollowBottom } from "@/hooks/useFollowBottom";
+import { JumpToLatestButton } from "@/components/ui/jump-to-latest-button";
 import { useShallow } from "zustand/react/shallow";
 
 interface SerialTerminalViewerProps {
@@ -145,11 +147,7 @@ export function SerialTerminalViewer({ title }: SerialTerminalViewerProps) {
     overscan: 15,
   });
 
-  useEffect(() => {
-    if (autoScroll && displayLineCount > 0) {
-      rowVirtualizer.scrollToIndex(displayLineCount - 1, { align: "end" });
-    }
-  }, [autoScroll, displayLineCount, rowVirtualizer]);
+  const follow = useFollowBottom(rowVirtualizer, displayLineCount, autoScroll);
 
   const focusTerminal = useCallback(() => {
     // 用户正在选择文本时不要夺焦，否则一松手选区就丢
@@ -458,47 +456,51 @@ export function SerialTerminalViewer({ title }: SerialTerminalViewerProps) {
             : "点击终端区域以激活键盘输入；选中文本可直接 Ctrl+C 复制，粘贴会发送到串口。"}
       </div>
 
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto bg-background p-2 font-mono text-xs leading-5"
-        onClick={focusTerminal}
-        onContextMenu={onContextMenu}
-      >
-        {displayLineCount === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{emptyMessage}</div>
-        ) : (
-          <div
-            style={{
-              height: `${rowVirtualizer.getTotalSize()}px`,
-              width: "100%",
-              position: "relative",
-            }}
-          >
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-              const line = getDisplayLine(virtualRow.index);
-              return (
-                <div
-                  key={`${line.id}-${virtualRow.key}`}
-                  data-index={virtualRow.index}
-                  ref={rowVirtualizer.measureElement}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
-                >
-                  <SerialTerminalLineItem
-                    text={line.text}
-                    showCursor={line.isActive && focused}
-                    colorParserConfig={colorParserConfig}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        )}
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scrollRef}
+          className="h-full overflow-y-auto bg-background p-2 font-mono text-xs leading-5"
+          onScroll={follow.onScroll}
+          onClick={focusTerminal}
+          onContextMenu={onContextMenu}
+        >
+          {displayLineCount === 0 ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{emptyMessage}</div>
+          ) : (
+            <div
+              style={{
+                height: `${rowVirtualizer.getTotalSize()}px`,
+                width: "100%",
+                position: "relative",
+              }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const line = getDisplayLine(virtualRow.index);
+                return (
+                  <div
+                    key={`${line.id}-${virtualRow.key}`}
+                    data-index={virtualRow.index}
+                    ref={rowVirtualizer.measureElement}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    <SerialTerminalLineItem
+                      text={line.text}
+                      showCursor={line.isActive && focused}
+                      colorParserConfig={colorParserConfig}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        {follow.paused && <JumpToLatestButton onClick={follow.jumpToLatest} />}
       </div>
 
       <textarea
