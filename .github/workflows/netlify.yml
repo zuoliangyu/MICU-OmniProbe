@@ -1,0 +1,32 @@
+name: 发布到 Netlify
+
+# GitHub Pages 直接从 main 分支的 docs/ 目录 发布；这里把同一份文件同步到 Netlify（主站）。
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**', '.github/workflows/netlify.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: netlify
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Netlify 跑在根路径，用 _redirects 把 GitHub Pages 的 /MICU-OmniProbe/ 子路径重写到根下同名文件。
+      - name: 发布到 Netlify
+        run: |
+          rm -rf /tmp/netlify-out && mkdir /tmp/netlify-out
+          cp -r docs/. /tmp/netlify-out/
+          echo '/MICU-OmniProbe/*  /:splat  200' >> /tmp/netlify-out/_redirects
+          npx --yes netlify-cli@26 deploy --prod --no-build --dir=/tmp/netlify-out --message "${{ github.sha }}"
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
