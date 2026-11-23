@@ -6,7 +6,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { open } from "@tauri-apps/plugin-shell";
+import { openUserDocs, userDocUrl } from "@/lib/userDocs";
 import {
   Activity,
   AudioWaveform,
@@ -92,7 +92,6 @@ const EMPTY_CHART_VALUES: Record<string, number> = {};
 const CANVAS_GAP = 12;
 const MIN_WIDGET_WIDTH = 200;
 const MIN_WIDGET_HEIGHT = 96;
-const WIDGET_INPUT_DOC_URL = "https://zuoliangyu.github.io/MICU-OmniProbe/#/SERIAL_CONTROL_PANEL_GUIDE";
 
 export interface ControlPanelData extends SerialViewerData {
   chartData: ChartDataPoint[];
@@ -588,9 +587,7 @@ export function SerialControlPanel({
                   variant="outline"
                   className="w-full gap-2"
                   onClick={() =>
-                    void open(`${WIDGET_INPUT_DOC_URL}?id=${widgetInputHelp.docId}`).catch((error) =>
-                      console.error("打开组件输入文档失败:", error)
-                    )
+                    openUserDocs(`${userDocUrl("SERIAL_CONTROL_PANEL_GUIDE")}?id=${widgetInputHelp.docId}`)
                   }
                 >
                   查看完整文档

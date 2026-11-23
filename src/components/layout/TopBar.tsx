@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { TooltipWrapper } from "@/components/ui/tooltip-button";
 import { formatBytes } from "@/lib/formatters";
 import { SettingsCenterButton } from "./SettingsCenterButton";
+import { HelpButtons } from "./HelpButtons";
 import { Button } from "@/components/ui/button";
 import { WORKSPACE_BY_MODE } from "@/components/modes/workspaceRegistry";
 
@@ -130,6 +131,7 @@ export function TopBar({ inspectorOpen, onToggleInspector }: TopBarProps) {
 
       <div className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
         <UpdateChecker showTrigger={false} />
+        <HelpButtons />
         <SettingsCenterButton />
         {mode !== "control-panel" && mode !== "log-analysis" && (
           <Button

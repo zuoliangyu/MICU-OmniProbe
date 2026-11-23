@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { open as openExternal } from "@tauri-apps/plugin-shell";
 import {
   ChevronDown,
   ChevronRight,
@@ -31,8 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { AuthorAboutDialog } from "./AuthorAboutDialog";
 import { UpdateChecker } from "@/components/UpdateChecker";
-
-const USER_DOCS_URL = "https://zuoliangyu.github.io/MICU-OmniProbe/";
+import { openUserDocs } from "@/lib/userDocs";
 
 const workspaceOptions: Array<{ value: AppMode; label: string }> = WORKSPACES.map(({ id, settingsLabel }) => ({
   value: id,
@@ -61,7 +59,8 @@ const quickActions = [
   },
   {
     title: "快捷键",
-    description: "Ctrl+1 烧录，Ctrl+2 RTT，Ctrl+3 串口，Ctrl+4 蓝牙，Ctrl+5 调试。",
+    description:
+      "Ctrl+1 烧录，Ctrl+2 RTT，Ctrl+3 串口，Ctrl+4 蓝牙，Ctrl+5 调试，Ctrl+6 日志分析；Ctrl+F 聚焦搜索框，Ctrl+L 清空 RTT / 串口 / 蓝牙数据，空格暂停 RTT 图表。",
   },
 ];
 
@@ -429,9 +428,7 @@ export default function SettingsCenterDialog({
                     size="sm"
                     variant="outline"
                     className="gap-2 px-3"
-                    onClick={() =>
-                      void openExternal(USER_DOCS_URL).catch((error) => console.error("打开在线文档失败:", error))
-                    }
+                    onClick={() => openUserDocs()}
                   >
                     <ExternalLink className="h-4 w-4" />
                     <span>在线文档</span>

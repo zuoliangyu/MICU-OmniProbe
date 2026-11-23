@@ -17,6 +17,9 @@ import { cn } from "@/lib/utils";
 
 interface RttIntegrationGuideDialogProps {
   trigger?: ReactNode;
+  /** 传入 open 即为受控模式：不渲染触发按钮，由外部（如顶栏）控制开关 */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 const RTT_REPO_URL = "https://github.com/zuoliangyu/MICU-OmniProbe/tree/main/RTTBSP";
@@ -62,17 +65,19 @@ if (len > 0) {
     // 处理命令，例如 if (strncmp(cmd, "led on", 6) == 0) { ... }
 }`;
 
-export function RttIntegrationGuideDialog({ trigger }: RttIntegrationGuideDialogProps) {
+export function RttIntegrationGuideDialog({ trigger, open, onOpenChange }: RttIntegrationGuideDialogProps) {
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        {trigger ?? (
-          <Button size="sm" variant="outline" className="gap-1.5" title="查看如何在固件里接入 RTT">
-            <BookOpen className="h-3.5 w-3.5" />
-            接入指南
-          </Button>
-        )}
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {open === undefined && (
+        <DialogTrigger asChild>
+          {trigger ?? (
+            <Button size="sm" variant="outline" className="gap-1.5" title="查看如何在固件里接入 RTT">
+              <BookOpen className="h-3.5 w-3.5" />
+              接入指南
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent className="max-w-3xl rounded-[28px] p-0">
         <DialogHeader className="space-y-1 border-b border-border/60 px-6 py-4">
           <DialogTitle className="flex items-center gap-2 text-base">
