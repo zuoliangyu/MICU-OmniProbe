@@ -36,6 +36,7 @@ export default tseslint.config(
       "examples/**",
       "RTTBSP/**",
       "skills/**",
+      "demo/**",
     ],
   },
 

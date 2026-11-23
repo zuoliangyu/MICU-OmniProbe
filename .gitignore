@@ -10,6 +10,9 @@ test-results/
 # 本地 Playwright UI 验收用例
 e2e/
 
+# 本地演示工程：模拟后端、截图与演示视频录制
+demo/
+
 # IDE
 .vscode/
 .idea/
