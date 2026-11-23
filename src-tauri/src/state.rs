@@ -338,6 +338,7 @@ pub struct AppState {
     pub debug_session: Arc<Mutex<Option<Session>>>,      // 调试独立连接
     pub debug_symbols: Arc<Mutex<Option<DebugSymbols>>>, // 当前加载的 ELF/DWARF 缓存
     pub debug_breakpoints: Arc<Mutex<Vec<DebugBreakpointEntry>>>, // 已注册的硬断点
+    pub debug_resumed: Arc<AtomicBool>,                  // 目标被运行/复位放行后尚未确认停下（断点命中只计一次）
     pub connection_info: Arc<Mutex<Option<ConnectionInfo>>>,
     pub rtt_connection_info: Arc<Mutex<Option<ConnectionInfo>>>, // RTT 连接信息
     pub debug_connection_info: Arc<Mutex<Option<ConnectionInfo>>>, // 调试连接信息
@@ -362,6 +363,7 @@ impl AppState {
             debug_session: Arc::new(Mutex::new(None)),
             debug_symbols: Arc::new(Mutex::new(None)),
             debug_breakpoints: Arc::new(Mutex::new(Vec::new())),
+            debug_resumed: Arc::new(AtomicBool::new(false)),
             connection_info: Arc::new(Mutex::new(None)),
             rtt_connection_info: Arc::new(Mutex::new(None)),
             debug_connection_info: Arc::new(Mutex::new(None)),
@@ -429,8 +431,10 @@ pub enum ConnectMode {
     UnderReset,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// 复位方式：软件复位走内核的系统复位请求（SYSRESETREQ），硬件复位拉低探针的 nRST 引脚
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
 pub enum ResetMode {
+    #[default]
     Software,
     Hardware,
 }

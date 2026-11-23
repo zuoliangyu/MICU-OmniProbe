@@ -6,12 +6,13 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { useProbeStore } from "@/stores/probeStore";
+import { buildConnectOptions, selectTargetChip, useProbeStore } from "@/stores/probeStore";
 import { useChipStore } from "@/stores/chipStore";
 import { useLogStore } from "@/stores/logStore";
 import { useAppStore } from "@/stores/appStore";
-import { listProbes, connectTarget, disconnect, searchChips, getChipInfo, getConnectionStatus } from "@/lib/tauri";
+import { listProbes, connectTarget, disconnect, searchChips, getConnectionStatus } from "@/lib/tauri";
 import { PackManager } from "@/components/config/PackManager";
+import type { ResetMode } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function Sidebar() {
@@ -28,7 +29,6 @@ export function Sidebar() {
   const autoDisconnectTimeout = useProbeStore((s) => s.autoDisconnectTimeout);
   const setProbes = useProbeStore((s) => s.setProbes);
   const selectProbe = useProbeStore((s) => s.selectProbe);
-  const setSelectedChipName = useProbeStore((s) => s.setSelectedChipName);
   const setConnected = useProbeStore((s) => s.setConnected);
   const setSettings = useProbeStore((s) => s.setSettings);
   const setLoading = useProbeStore((s) => s.setLoading);
@@ -40,8 +40,6 @@ export function Sidebar() {
   const selectedChip = useChipStore((s) => s.selectedChip);
   const searchQuery = useChipStore((s) => s.searchQuery);
   const setSearchResults = useChipStore((s) => s.setSearchResults);
-  const selectChip = useChipStore((s) => s.selectChip);
-  const setChipInfo = useChipStore((s) => s.setChipInfo);
   const setSearchQuery = useChipStore((s) => s.setSearchQuery);
   const recentChips = useChipStore((s) => s.recentChips);
   const addRecentChip = useChipStore((s) => s.addRecentChip);
@@ -119,13 +117,7 @@ export function Sidebar() {
       setError(null);
       addLog("info", `正在连接 ${selectedChip}...`);
 
-      const targetInfo = await connectTarget({
-        probe_identifier: selectedProbe.probe_id,
-        target: selectedChip,
-        interface_type: settings.interfaceType === "SWD" ? "Swd" : "Jtag",
-        clock_speed: settings.clockSpeed,
-        connect_mode: settings.connectMode === "Normal" ? "Normal" : "UnderReset",
-      });
+      const targetInfo = await connectTarget(buildConnectOptions(selectedProbe, selectedChip, settings));
 
       // 从后端获取完整的连接信息
       const status = await getConnectionStatus();
@@ -185,14 +177,9 @@ export function Sidebar() {
   const handleChipSelect = async (chipName: string) => {
     // 选完收起列表；再次点击输入框时重新聚焦即可展开
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-    selectChip(chipName);
-    setSearchQuery(chipName);
-    setSearchResults([]);
-    setSelectedChipName(chipName); // 同步到 probeStore
 
     try {
-      const info = await getChipInfo(chipName);
-      setChipInfo(info);
+      await selectTargetChip(chipName);
       addLog("info", `已选择芯片: ${chipName}`);
     } catch (error) {
       addLog("error", `获取芯片信息失败: ${error}`);
@@ -410,10 +397,10 @@ export function Sidebar() {
 
                 <div>
                   <label className="text-xs text-muted-foreground">复位方式</label>
+                  {/* 只在复位时生效（烧录/调试工具栏「复位」、烧录后复位），连接期间也可切换 */}
                   <Select
                     value={settings.resetMode}
-                    onValueChange={(value: "Software" | "Hardware") => setSettings({ resetMode: value })}
-                    disabled={connected}
+                    onValueChange={(value: ResetMode) => setSettings({ resetMode: value })}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -423,6 +410,9 @@ export function Sidebar() {
                       <SelectItem value="Hardware">硬件复位</SelectItem>
                     </SelectContent>
                   </Select>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    用于工具栏「复位」和烧录后复位；硬件复位需要接好芯片的 nRST 引脚
+                  </p>
                 </div>
               </CardContent>
             </CollapsibleContent>
@@ -482,7 +472,9 @@ export function Sidebar() {
                         <SelectItem value="300">300 秒</SelectItem>
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-muted-foreground mt-1">无操作超时后自动断开连接（RTT运行时不会断开）</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      无操作超时后自动断开连接（RTT 运行时、烧录/擦除/校验/读取进行中不会断开）
+                    </p>
                   </div>
                 )}
               </CardContent>

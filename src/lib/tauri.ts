@@ -14,6 +14,7 @@ import type {
   RttWriteOptions,
   RttSourcesExport,
   EraseMode,
+  ResetMode,
   UsbPermissionStatus,
 } from "./types";
 
@@ -86,6 +87,35 @@ export async function writeBinaryFile(path: string, bytes: Uint8Array): Promise<
 
 export async function getFirmwareInfo(filePath: string): Promise<FirmwareFileInfo> {
   return await invoke<FirmwareFileInfo>("get_firmware_info", { filePath });
+}
+
+// 目标控制命令（作用于烧录连接）
+/** resetMode 对应配置检查器「复位方式」，省略为软件复位。 */
+export async function resetTarget(resetMode?: ResetMode): Promise<void> {
+  return await invoke("reset_target", { resetMode });
+}
+
+/** 停止内核，返回停下时的 PC。 */
+export async function haltTarget(): Promise<number> {
+  return await invoke<number>("halt_target");
+}
+
+export async function resumeTarget(): Promise<void> {
+  return await invoke("resume_target");
+}
+
+/** 以允许全片擦除的权限重新连接并整片擦除，完成后保持连接。 */
+export async function unlockChip(options: ConnectOptions): Promise<TargetInfo> {
+  return await invoke<TargetInfo>("unlock_chip", { options });
+}
+
+/** 读写 UTF-8 文本文件（扩展名受后端白名单限制）。 */
+export async function readTextFile(path: string): Promise<string> {
+  return await invoke<string>("read_text_file", { path });
+}
+
+export async function writeTextFile(path: string, content: string): Promise<void> {
+  await invoke("write_text_file", { path, content });
 }
 
 // RTT命令

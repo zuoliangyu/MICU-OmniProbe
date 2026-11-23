@@ -25,6 +25,8 @@ import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { buildChartDisplayRows, calculateChartStatistics } from "@/lib/chartPresentation";
 import { formatChartNumber } from "@/lib/formatters";
+import type { TriggerSnapshot } from "@/lib/triggerCapture";
+import type { ChartWorkspaceSource } from "@/lib/chartWorkspace";
 import { SignalPlotCanvas } from "./SignalPlotCanvas";
 
 interface BrushDomain {
@@ -71,7 +73,32 @@ export interface ChartViewerProps {
   setChartConfig: (config: ChartConfig) => void;
   /** 最近一次触发点时间戳，透传给波形画布用于标记 */
   triggeredAt?: number | null;
+  /** 触发捕获冻结的画面；冻结期间优先显示它，而不是冻结前最后渲染的那一帧 */
+  triggerCapture?: TriggerSnapshot | null;
+  /** 数据来源，决定空状态里指引用户去哪里配置解析；不传时给出通用提示 */
+  source?: ChartWorkspaceSource;
 }
+
+/** 各工作台配置解析的实际入口不同：只有串口有右侧「数据」页 */
+const SETUP_HINTS: Record<ChartWorkspaceSource | "default", { setup: string; reparse: string }> = {
+  serial: {
+    setup: "先到右侧“数据”页粘贴一条真实样本，确认识别出数值通道后点击“应用解析”。",
+    reparse: "可在右侧“数据”页重新粘贴样本并应用解析，或从图表工具栏“通道”打开已有曲线。",
+  },
+  rtt: {
+    setup:
+      "先让文本区收到几行数据，再点 RTT 工具栏“更多 → 智能启用”自动识别，或在“更多 → 图表配置”中选择解析模式并配置通道。",
+    reparse: "可从图表工具栏“通道”打开已有曲线，或在 RTT 工具栏“更多 → 图表配置 → 通道”中调整。",
+  },
+  bluetooth: {
+    setup: "先接收几条数据，再点 BLE 工具栏“更多 → 智能启用”自动识别，或在“更多 → 图表配置”中选择解析模式并配置通道。",
+    reparse: "可从图表工具栏“通道”打开已有曲线，或在 BLE 工具栏“更多 → 图表配置 → 通道”中调整。",
+  },
+  default: {
+    setup: "请在图表配置中选择解析模式，确认识别出数值通道后保存。",
+    reparse: "可从图表工具栏“通道”打开已有曲线，或在图表配置的“通道”页中调整。",
+  },
+};
 
 export function ChartViewer({
   chartData,
@@ -85,15 +112,29 @@ export function ChartViewer({
   clearChartData,
   setChartConfig,
   triggeredAt = null,
+  triggerCapture = null,
+  source,
 }: ChartViewerProps) {
   const [zoomDomain, setZoomDomain] = useState<BrushDomain>({});
   const signalDomain = chartConfig.signalDomain ?? "time";
+  const setupHints = SETUP_HINTS[source ?? "default"];
+  // 触发捕获冻结时直接显示 store 切好的捕获画面（触发窗口），新的捕获会立即替换它；
+  // 手动冻结才用下面的本地快照。
+  const capture = chartPaused ? triggerCapture : null;
   // ponytail: 冻结快照只跟随当前图表实例；需要跨视图卸载保持同一帧时，再把快照移入各数据源 store。
   const frozenChartDataRef = useRef(chartData);
-  const { displayedData, nextFrozenData } = resolveChartDisplayData(chartData, chartPaused, frozenChartDataRef.current);
+  const { displayedData, nextFrozenData } = resolveChartDisplayData(
+    capture?.chartData ?? chartData,
+    chartPaused && !capture,
+    frozenChartDataRef.current
+  );
   frozenChartDataRef.current = nextFrozenData;
   const frozenProcessedDataRef = useRef(processedData);
-  const processedDisplay = resolveChartDisplayData(processedData, chartPaused, frozenProcessedDataRef.current);
+  const processedDisplay = resolveChartDisplayData(
+    capture?.processedChartData ?? processedData,
+    chartPaused && !capture,
+    frozenProcessedDataRef.current
+  );
   frozenProcessedDataRef.current = processedDisplay.nextFrozenData;
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const addLog = useLogStore((s) => s.addLog);
@@ -461,9 +502,7 @@ export function ChartViewer({
       <div className="flex h-full items-center justify-center rounded-[28px] border border-dashed border-border/80 bg-white/55">
         <div className="space-y-2 text-center">
           <p className="text-base font-medium text-foreground">图表尚未配置</p>
-          <p className="text-xs text-muted-foreground">
-            请到右侧“数据”页粘贴一条真实样本，确认识别出数值通道后点击“应用解析”。
-          </p>
+          <p className="text-xs text-muted-foreground">{setupHints.setup}</p>
         </div>
       </div>
     );
@@ -677,7 +716,11 @@ export function ChartViewer({
         </Popover>
 
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-xs text-muted-foreground tabular-nums">
-          {chartPaused && <span className="rounded-full bg-primary/10 px-3 py-1 text-primary">已冻结</span>}
+          {chartPaused && (
+            <span className="rounded-full bg-primary/10 px-3 py-1 text-primary">
+              {capture ? "已冻结 · 触发捕获" : "已冻结"}
+            </span>
+          )}
           <span className="rounded-full bg-white/80 px-3 py-1">
             解析 {parseHealth === null ? "—" : `${parseHealth.toFixed(0)}%`}
           </span>
@@ -689,9 +732,7 @@ export function ChartViewer({
           <div className="flex h-full min-h-[320px] items-center justify-center rounded-[28px] border border-dashed border-border/80 bg-white/55">
             <div className="max-w-xl space-y-2 px-6 text-center">
               <p className="text-sm font-medium text-foreground">还没有可绘制的数据</p>
-              <p className="text-xs text-muted-foreground">
-                先到右侧“数据”页粘贴一条真实样本，确认识别出数值通道并点击“应用解析”。
-              </p>
+              <p className="text-xs text-muted-foreground">{setupHints.setup}</p>
               <p className="text-xs text-muted-foreground">
                 然后连接数据源并开始接收；匹配的数据到达后会自动生成图表。
               </p>
@@ -701,9 +742,7 @@ export function ChartViewer({
           <div className="flex h-full min-h-[320px] items-center justify-center rounded-[28px] border border-dashed border-border/80 bg-white/55">
             <div className="space-y-2 text-center">
               <p className="text-sm font-medium text-foreground">当前没有可见曲线</p>
-              <p className="text-xs text-muted-foreground">
-                可在右侧“数据”页重新粘贴样本并应用解析，或从图表工具栏“通道”打开已有曲线。
-              </p>
+              <p className="text-xs text-muted-foreground">{setupHints.reparse}</p>
             </div>
           </div>
         ) : chartConfig.chartType === "waveform" ? (

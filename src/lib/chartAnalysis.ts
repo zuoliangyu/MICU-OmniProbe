@@ -4,7 +4,14 @@
 
 import type { ChartConfig, Channel } from "./chartTypes";
 import { isBytesParseMode, isModbusParseMode, PRESET_COLORS } from "./chartTypes";
-import { createBinaryProtocolChannels, extractChartPayload, parseChartData, parseWithKv } from "./parseChartData";
+import {
+  createBinaryProtocolChannels,
+  decodeDelimiter,
+  encodeDelimiter,
+  extractChartPayload,
+  parseChartData,
+  parseWithKv,
+} from "./parseChartData";
 import { parseJustFloatChunk } from "./parseJustFloat";
 import { createModbusChannels } from "./parseModbusRtu";
 import { BinaryProtocolStream, validateBinaryProtocolConfig } from "./binaryProtocol";
@@ -350,7 +357,7 @@ function detectXyData(lines: string[]): DetectionResult {
       suggestedConfig: {
         enabled: true,
         parseMode: "delimiter",
-        delimiter: bestDelimiter,
+        delimiter: encodeDelimiter(bestDelimiter),
         channels: [
           {
             key: "x",
@@ -445,7 +452,7 @@ function detectXyWithSeq(lines: string[]): DetectionResult {
       suggestedConfig: {
         enabled: true,
         parseMode: "delimiter",
-        delimiter: bestDelimiter,
+        delimiter: encodeDelimiter(bestDelimiter),
         channels: [
           {
             key: "seq",
@@ -600,7 +607,7 @@ function detectCsv(lines: string[]): DetectionResult {
       suggestedConfig: {
         enabled: true,
         parseMode: "delimiter",
-        delimiter: bestDelimiter,
+        delimiter: encodeDelimiter(bestDelimiter),
         channels,
         chartType: "waveform",
         maxDataPoints: 4000,
@@ -689,7 +696,9 @@ function channelsFromConfiguredParser(config: ChartConfig, samples: ChartSample[
   return Array.from(keys, (key, index) => buildYChannel(key, index));
 }
 
-function channelsFromDelimiter(samples: ChartSample[], delimiter: string): Channel[] {
+function channelsFromDelimiter(samples: ChartSample[], rawDelimiter: string): Channel[] {
+  // 与 parseWithDelimiter 一致：输入框里的 \t 等转义先还原成实际字符
+  const delimiter = decodeDelimiter(rawDelimiter);
   if (!delimiter) return [];
 
   const numericCounts: number[] = [];

@@ -99,11 +99,14 @@ export function ChartWorkspaceWindowPage({ source }: ChartWorkspaceWindowPagePro
       <div className="min-h-0 flex-1 overflow-hidden rounded-[30px]">
         {snapshot ? (
           <ChartViewer
+            source={source}
             chartData={snapshot.chartData}
             processedData={snapshot.processedChartData ?? snapshot.chartData}
             filterActive={snapshot.filterActive}
             chartConfig={snapshot.chartConfig}
             chartPaused={snapshot.chartPaused}
+            triggeredAt={snapshot.triggeredAt ?? null}
+            triggerCapture={snapshot.triggerCapture ?? null}
             parseSuccessCount={snapshot.parseSuccessCount}
             parseFailCount={snapshot.parseFailCount}
             setChartPaused={(paused) =>

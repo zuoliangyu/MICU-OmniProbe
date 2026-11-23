@@ -9,7 +9,7 @@ const server = await createServer({ root, logLevel: "silent", server: { middlewa
 try {
   const { parseAnsiText } = await server.ssrLoadModule("/src/lib/ansiParser.ts");
   const { parseColoredSegments, LOG_LEVEL_COLORS } = await server.ssrLoadModule("/src/lib/coloredSegments.ts");
-  const { DEFAULT_PARSER_CONFIG } = await server.ssrLoadModule("/src/lib/rttColorParser.ts");
+  const { DEFAULT_PARSER_CONFIG, parseColoredText } = await server.ssrLoadModule("/src/lib/rttColorParser.ts");
 
   // 无转义：原样一段
   assert.deepEqual(parseAnsiText("hello"), [{ text: "hello", className: "" }]);
@@ -47,6 +47,64 @@ try {
   assert.ok(enabled.some(({ text, styles }) => text === "B" && styles?.color));
 
   assert.deepEqual(Object.keys(LOG_LEVEL_COLORS).sort(), ["debug", "error", "info", "warn"]);
+
+  // ---- 自定义颜色标记 ----
+  const plain = (segments) => segments.map(({ text }) => text).join("");
+  const styleOf = (segments, text) => segments.find((segment) => segment.text === text)?.styles;
+
+  // [/] 关闭最近一个标记（颜色设置对话框里的示例写法）
+  const shortClose = parseColoredText("[red]错误信息[/] 后续", DEFAULT_PARSER_CONFIG);
+  assert.equal(plain(shortClose), "错误信息 后续");
+  assert.equal(styleOf(shortClose, "错误信息").color, "#ef4444");
+  assert.deepEqual(styleOf(shortClose, " 后续"), {});
+
+  // [/red] 完整写法仍然可用
+  const fullClose = parseColoredText("[red]A[/red]B", DEFAULT_PARSER_CONFIG);
+  assert.equal(plain(fullClose), "AB");
+  assert.deepEqual(styleOf(fullClose, "B"), {});
+
+  // 带连字符的内置背景色标记
+  const bgTag = parseColoredText("[bg-red]警告[/bg-red]", DEFAULT_PARSER_CONFIG);
+  assert.equal(plain(bgTag), "警告");
+  assert.equal(styleOf(bgTag, "警告").backgroundColor, "#ef4444");
+
+  // 嵌套：[/] 只关最近一层；[/name] 回退到同名标记打开之前
+  const nested = parseColoredText("[bold]a[red]b[/]c[/bold]d", DEFAULT_PARSER_CONFIG);
+  assert.equal(plain(nested), "abcd");
+  assert.equal(styleOf(nested, "b").color, "#ef4444");
+  assert.equal(styleOf(nested, "c").fontWeight, "bold");
+  assert.equal(styleOf(nested, "c").color, undefined);
+  assert.deepEqual(styleOf(nested, "d"), {});
+  const unwind = parseColoredText("[bold]a[red]b[/bold]c", DEFAULT_PARSER_CONFIG);
+  assert.deepEqual(styleOf(unwind, "c"), {}, "[/bold] 应连同其后打开的 red 一起关闭");
+
+  // 未配置的标记名、普通方括号文本原样保留，不能被吞掉
+  assert.equal(plain(parseColoredText("[INFO] [12] [/x] 正常", DEFAULT_PARSER_CONFIG)), "[INFO] [12] [/x] 正常");
+
+  // 自定义前缀 / 后缀 / 关闭标记真正生效，且其中的正则特殊字符按字面匹配
+  const custom = { ...DEFAULT_PARSER_CONFIG, tagPrefix: "{{", tagSuffix: "}}", closeTag: "|" };
+  const customSegments = parseColoredText("{{red}}x{{|}}y{{green}}z{{|green}}w [red]q[/red]", custom);
+  assert.equal(plain(customSegments), "xyzw [red]q[/red]");
+  assert.equal(styleOf(customSegments, "x").color, "#ef4444");
+  assert.deepEqual(styleOf(customSegments, "y"), {});
+  assert.equal(styleOf(customSegments, "z").color, "#22c55e");
+  const textClose = parseColoredText("<red>x<end>y", {
+    ...DEFAULT_PARSER_CONFIG,
+    tagPrefix: "<",
+    tagSuffix: ">",
+    closeTag: "end",
+  });
+  assert.equal(plain(textClose), "xy");
+  assert.deepEqual(styleOf(textClose, "y"), {});
+
+  // 留空的关闭标记回落到默认 "/"
+  assert.equal(plain(parseColoredText("[red]x[/]", { ...DEFAULT_PARSER_CONFIG, closeTag: "" })), "x");
+
+  // 自定义标记名可以包含正则特殊字符
+  const special = { ...DEFAULT_PARSER_CONFIG, tags: [{ name: "a.b+", color: "#123456" }] };
+  const specialSegments = parseColoredText("[a.b+]x[/] [aXbb]", special);
+  assert.equal(plain(specialSegments), "x [aXbb]");
+  assert.equal(styleOf(specialSegments, "x").color, "#123456");
 
   console.log("ANSI 解析与日志着色检查通过");
 } finally {

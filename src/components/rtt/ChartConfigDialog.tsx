@@ -40,6 +40,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertCircle, CheckCircle2, Download, Eye, EyeOff, GripVertical, Plus, Settings, Trash2 } from "lucide-react";
 import { BinaryProtocolDesigner } from "@/components/serial/BinaryProtocolDesigner";
+import { CanSignalEditor } from "@/components/serial/CanSignalEditor";
 
 type ChartConfigSection = "basic" | "channels" | "performance" | "display" | "filter";
 
@@ -372,7 +373,7 @@ export function ChartConfigDialog({
       case "binary":
         return "按协议设计器配置，从原始字节流完成分帧、消息匹配、CRC 校验和字段解码。";
       case "slcan":
-        return "解析 SLCAN 经典 CAN t/T/r/R 与 CAN FD d/D/b/B 帧；信号与 DBC 请在串口侧栏的数据解析面板配置。";
+        return "解析 SLCAN 经典 CAN t/T/r/R 与 CAN FD d/D/b/B 帧；在下方添加 Payload 信号或导入 DBC，每个信号对应一条通道。";
       case "modbus-rtu":
       case "modbus-ascii":
       case "modbus-tcp":
@@ -811,6 +812,16 @@ export function ChartConfigDialog({
                 />
               )}
 
+              {allowParserConfig && localConfig.parseMode === "slcan" && (
+                <CanSignalEditor
+                  canBus={localConfig.canBus}
+                  channels={localConfig.channels}
+                  showBusSettings={false}
+                  onCanBusChange={(canBus) => setLocalConfig((current) => ({ ...current, canBus }))}
+                  onChannelsChange={(channels) => setLocalConfig((current) => ({ ...current, channels }))}
+                />
+              )}
+
               {allowParserConfig && !isBytesParseMode(localConfig.parseMode) && (
                 <div className="space-y-2">
                   <Label htmlFor="framePrefix">数据帧前缀（可选）</Label>
@@ -862,7 +873,10 @@ export function ChartConfigDialog({
                     />
                     <p className="text-xs text-muted-foreground">
                       例如 <code className="font-mono">20,4997.32,122954.44</code> 用{" "}
-                      <code className="font-mono">,</code>。
+                      <code className="font-mono">,</code>。制表符写 <code className="font-mono">\t</code>，也支持{" "}
+                      <code className="font-mono">\r</code>、<code className="font-mono">\n</code>、
+                      <code className="font-mono">\\</code>（反斜杠）和 <code className="font-mono">\xHH</code>
+                      （十六进制字节）。
                     </p>
                   </div>
                 )}

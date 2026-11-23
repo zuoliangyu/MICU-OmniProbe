@@ -42,6 +42,7 @@ try {
       filterActive: false,
       chartPaused: false,
       triggeredAt: null,
+      triggerCapture: null,
       parseSuccessCount: 0,
       parseFailCount: 0,
       chartConfig,
@@ -97,10 +98,12 @@ try {
       const after = store.getState();
       assert.equal(after.chartPaused, true, `${name}：触发后应冻结图表`);
       assert.equal(after.triggeredAt, 20, `${name}：触发点时间戳应为穿越那一刻`);
-      assert.equal(after.chartData.length, 8, `${name}：窗口应为 pre + post = 8 个点，实际 ${after.chartData.length}`);
-      assert.equal(after.chartData[after.chartData.length - 1].timestamp, 22, `${name}：窗口末尾应是最后一个后置样本`);
+      const captured = after.triggerCapture?.chartData ?? [];
+      assert.equal(captured.length, 8, `${name}：捕获画面应为 pre + post = 8 个点，实际 ${captured.length}`);
+      assert.equal(captured[captured.length - 1].timestamp, 22, `${name}：窗口末尾应是最后一个后置样本`);
+      assert.equal(after.chartData.length, 23, `${name}：滚动缓冲区不应被裁成窗口，恢复跟随后历史仍在`);
     }
-    console.log("  窗口模式：触发后冻结，图表只保留 pre + post 个点");
+    console.log("  窗口模式：触发后冻结，捕获画面只保留 pre + post 个点，滚动缓冲区保持完整");
   }
 
   // ---- 4) 全量模式：触发后冻结，但保留整个缓冲区 ----
@@ -122,7 +125,11 @@ try {
 
       const after = store.getState();
       assert.equal(after.chartPaused, true, `${name}：全量模式同样应冻结`);
-      assert.equal(after.chartData.length, 23, `${name}：全量模式应保留整个缓冲区，实际 ${after.chartData.length}`);
+      assert.equal(
+        after.triggerCapture?.chartData.length,
+        23,
+        `${name}：全量模式的捕获画面应保留整个缓冲区，实际 ${after.triggerCapture?.chartData.length}`
+      );
       assert.equal(after.triggeredAt, 20, `${name}：全量模式也要给出触发点供标记`);
     }
     console.log("  全量模式：触发后冻结但保留完整缓冲区，仅记录触发点");
@@ -139,6 +146,7 @@ try {
       store.getState().rearmTrigger();
       assert.equal(store.getState().chartPaused, false, `${name}：重新武装应解冻`);
       assert.equal(store.getState().triggeredAt, null, `${name}：重新武装应清除触发点`);
+      assert.equal(store.getState().triggerCapture, null, `${name}：重新武装应丢弃捕获画面`);
 
       // 重新武装后应能再次触发
       store.getState().addChartDataBatch([point(100, 10)]);
@@ -157,6 +165,7 @@ try {
 
       store.getState().clearChartData();
       assert.equal(store.getState().triggeredAt, null, `${name}：清空应清除触发点`);
+      assert.equal(store.getState().triggerCapture, null, `${name}：清空应丢弃捕获画面`);
       assert.deepEqual(store.getState().chartData, [], `${name}：清空应清空数据`);
 
       // 清空后检测器也应复位——否则残留的"已触发"状态会让后续数据永远不再触发
@@ -217,23 +226,21 @@ try {
 
       const after = store.getState();
       assert.equal(after.chartPaused, true, `${name}：开启滤波时也应能触发`);
+      const raw = after.triggerCapture?.chartData ?? [];
+      const processed = after.triggerCapture?.processedChartData ?? [];
       assert.equal(
-        after.processedChartData.length,
-        after.chartData.length,
-        `${name}：原始与滤波后缓冲区长度必须一致，实际 ${after.chartData.length} vs ${after.processedChartData.length}`
+        processed.length,
+        raw.length,
+        `${name}：原始与滤波后捕获画面长度必须一致，实际 ${raw.length} vs ${processed.length}`
       );
-      assert.equal(after.chartData.length, 8, `${name}：窗口模式下两者都应被裁到 pre + post`);
+      assert.equal(raw.length, 8, `${name}：窗口模式下两者都应被裁到 pre + post`);
 
       // 时间戳应逐点对齐，否则图表把两条曲线画在错位的横坐标上
-      after.chartData.forEach((sample, index) => {
-        assert.equal(
-          after.processedChartData[index].timestamp,
-          sample.timestamp,
-          `${name}：第 ${index} 点的原始与滤波后时间戳应对齐`
-        );
+      raw.forEach((sample, index) => {
+        assert.equal(processed[index].timestamp, sample.timestamp, `${name}：第 ${index} 点的原始与滤波后时间戳应对齐`);
       });
     }
-    console.log("  开启滤波时：原始与滤波后缓冲区按同一窗口裁剪且逐点对齐");
+    console.log("  开启滤波时：原始与滤波后捕获画面按同一窗口裁剪且逐点对齐");
   }
 
   // ---- 9) 串口的真实数据路径：commitSerialReceiveBatch ----
@@ -268,9 +275,119 @@ try {
     const after = useSerialStore.getState();
     assert.equal(after.chartPaused, true, "串口真实路径上触发也必须生效");
     assert.equal(after.triggeredAt, 20, "触发点时间戳应正确");
-    assert.equal(after.chartData.length, 7, `窗口应为 pre + post = 7，实际 ${after.chartData.length}`);
-    assert.equal(after.processedChartData.length, after.chartData.length, "两个缓冲区长度应一致");
+    const captured = after.triggerCapture?.chartData ?? [];
+    assert.equal(captured.length, 7, `窗口应为 pre + post = 7，实际 ${captured.length}`);
+    assert.equal(after.triggerCapture?.processedChartData.length, captured.length, "两份捕获画面长度应一致");
     console.log("  串口真实路径 commitSerialReceiveBatch 上触发同样生效");
+  }
+
+  // ---- 10) 同一批数据在捕获完成后还有剩余样本：窗口必须结束在最后一个后置样本上 ----
+  //
+  // RTT 按帧合批，一批常含几十个样本。早先直接从缓冲区末尾切窗口，
+  // 捕获完成之后的那些样本也被算进窗口，触发点因此偏离窗口里应在的位置。
+  {
+    for (const [name, store] of STORES) {
+      const config = chartConfigWith({
+        condition: "rising",
+        level: 50,
+        preSamples: 5,
+        postSamples: 3,
+        mode: "single",
+        view: "window",
+      });
+      resetStore(store, config);
+
+      const batch = [
+        ...Array.from({ length: 20 }, (_, i) => point(0, i)),
+        point(100, 20),
+        point(100, 21),
+        point(100, 22),
+        ...Array.from({ length: 10 }, (_, i) => point(0, 23 + i)),
+      ];
+      store.getState().addChartDataBatch(batch);
+
+      const captured = store.getState().triggerCapture?.chartData ?? [];
+      assert.deepEqual(
+        captured.map(({ timestamp }) => timestamp),
+        [15, 16, 17, 18, 19, 20, 21, 22],
+        `${name}：窗口应为触发前 5 点 + 触发后 3 点，实际 ${captured.map(({ timestamp }) => timestamp)}`
+      );
+      assert.equal(store.getState().chartData.length, 33, `${name}：滚动缓冲区照常保留整批数据`);
+    }
+    console.log("  同批剩余样本不混进触发窗口，窗口精确结束在最后一个后置样本");
+  }
+
+  // ---- 11) 单次模式：恢复跟随后仍能重新武装，而不是只能清空数据 ----
+  {
+    for (const [name, store] of STORES) {
+      const config = chartConfigWith({ condition: "above", level: 50, postSamples: 1, mode: "single" });
+      resetStore(store, config);
+      store.getState().addChartDataBatch([point(100, 0)]);
+      assert.equal(store.getState().chartPaused, true);
+
+      // 用户点「恢复跟随」
+      store.getState().setChartPaused(false);
+      const resumed = store.getState();
+      assert.equal(resumed.triggerCapture, null, `${name}：恢复跟随应丢弃捕获画面，回到实时缓冲区`);
+      assert.equal(resumed.triggeredAt, 0, `${name}：恢复跟随后仍保留触发点，界面据此继续提供重新武装`);
+
+      // 单次模式已捕获：恢复跟随不等于重新武装
+      store.getState().addChartDataBatch([point(100, 1)]);
+      assert.equal(store.getState().chartPaused, false, `${name}：未重新武装前不应再次触发`);
+
+      store.getState().rearmTrigger();
+      store.getState().addChartDataBatch([point(100, 2)]);
+      assert.equal(store.getState().chartPaused, true, `${name}：恢复跟随后重新武装应能再次触发`);
+      assert.equal(store.getState().triggeredAt, 2);
+    }
+    console.log("  单次模式：恢复跟随后保留触发点，重新武装即可再次触发");
+  }
+
+  // ---- 12) 正常模式：冻结期间的后续捕获要刷新画面 ----
+  {
+    for (const [name, store] of STORES) {
+      const config = chartConfigWith({
+        condition: "rising",
+        level: 50,
+        preSamples: 2,
+        postSamples: 2,
+        mode: "normal",
+        view: "window",
+      });
+      resetStore(store, config);
+
+      store.getState().addChartDataBatch([point(0, 0), point(0, 1), point(100, 2), point(100, 3)]);
+      const first = store.getState().triggerCapture;
+      assert.equal(store.getState().triggeredAt, 2);
+
+      store.getState().addChartDataBatch([point(0, 4), point(0, 5), point(100, 6), point(100, 7)]);
+      const second = store.getState().triggerCapture;
+      assert.equal(store.getState().chartPaused, true);
+      assert.equal(store.getState().triggeredAt, 6, `${name}：正常模式应记录新的触发点`);
+      assert.notEqual(second, first, `${name}：新的捕获应替换冻结画面`);
+      assert.deepEqual(
+        second.chartData.map(({ timestamp }) => timestamp),
+        [4, 5, 6, 7],
+        `${name}：冻结画面应换成最新一次的触发窗口`
+      );
+    }
+    console.log("  正常模式：冻结期间每次新捕获都会刷新冻结画面");
+  }
+
+  // ---- 13) 切换单次 / 正常模式或开关触发：检测器重新待触发，旧触发点失效 ----
+  {
+    for (const [name, store] of STORES) {
+      const single = chartConfigWith({ condition: "above", level: 50, postSamples: 1, mode: "single" });
+      resetStore(store, single);
+      store.getState().addChartDataBatch([point(100, 0)]);
+      store.getState().setChartPaused(false);
+
+      store.getState().setChartConfig({ ...single, trigger: { ...single.trigger, mode: "normal" } });
+      assert.equal(store.getState().triggeredAt, null, `${name}：切换模式应清除旧触发点`);
+      store.getState().addChartDataBatch([point(100, 1)]);
+      assert.equal(store.getState().chartPaused, true, `${name}：切到正常模式后应能直接触发`);
+    }
+    console.log("  切换触发模式后检测器重新待触发，不会卡在旧的已捕获状态");
   }
 
   console.log("触发捕获 store 接线检查通过");

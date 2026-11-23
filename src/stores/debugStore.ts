@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { DebugBreakpointEntry, DebugFrame, ElfSymbol } from "@/lib/debug";
+import { debugListBreakpoints, type DebugBreakpointEntry, type DebugFrame, type ElfSymbol } from "@/lib/debug";
 
 export type { DebugBreakpointEntry, DebugFrame };
 
@@ -39,6 +39,8 @@ interface DebugStoreState {
   state: DebugState;
   haltReason: HaltReason;
   pc: number | null;
+  // 每停下一次（含单步后仍是 halted）加 1，寄存器 / 变量 / 观察面板据此重新读取
+  haltSeq: number;
 
   loadedElfPath: string | null;
   symbols: ElfSymbol[];
@@ -58,9 +60,12 @@ interface DebugStoreState {
   setSymbols: (symbols: ElfSymbol[], functionCount: number, variableCount: number) => void;
   clearSymbols: () => void;
   setBreakpoints: (breakpoints: DebugBreakpointEntry[]) => void;
+  /** 从后端重新拉取断点列表（含命中次数） */
+  refreshBreakpoints: () => Promise<void>;
   setFrames: (frames: DebugFrame[]) => void;
   setCurrentFrameId: (frameId: number | null) => void;
   setPanelVisible: (panel: PanelId, visible: boolean) => void;
+  setVisiblePanels: (visiblePanels: Record<PanelId, boolean>) => void;
   resetPanelLayout: () => void;
 }
 
@@ -80,6 +85,7 @@ export const useDebugStore = create<DebugStoreState>((set) => ({
   state: "detached",
   haltReason: null,
   pc: null,
+  haltSeq: 0,
 
   loadedElfPath: null,
   symbols: [],
@@ -92,14 +98,17 @@ export const useDebugStore = create<DebugStoreState>((set) => ({
 
   visiblePanels: { ...ALL_PANELS_VISIBLE },
 
-  setState: (state, haltReason = null, pc = null) => set({ state, haltReason, pc }),
+  setState: (state, haltReason = null, pc = null) =>
+    set((s) => ({ state, haltReason, pc, haltSeq: state === "halted" ? s.haltSeq + 1 : s.haltSeq })),
   setLoadedElfPath: (loadedElfPath) => set({ loadedElfPath }),
   setSymbols: (symbols, functionCount, variableCount) =>
     set({ symbols, symbolFunctionCount: functionCount, symbolVariableCount: variableCount }),
   clearSymbols: () => set({ symbols: [], symbolFunctionCount: 0, symbolVariableCount: 0, loadedElfPath: null }),
   setBreakpoints: (breakpoints) => set({ breakpoints }),
+  refreshBreakpoints: async () => set({ breakpoints: await debugListBreakpoints() }),
   setFrames: (frames) => set({ frames }),
   setCurrentFrameId: (currentFrameId) => set({ currentFrameId }),
   setPanelVisible: (panel, visible) => set((s) => ({ visiblePanels: { ...s.visiblePanels, [panel]: visible } })),
+  setVisiblePanels: (visiblePanels) => set({ visiblePanels }),
   resetPanelLayout: () => set({ visiblePanels: { ...ALL_PANELS_VISIBLE } }),
 }));

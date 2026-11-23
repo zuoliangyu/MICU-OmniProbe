@@ -13,6 +13,11 @@ import { parseDbc } from "@/lib/parseDbc";
 interface CanSignalEditorProps {
   canBus: CanBusConfig;
   channels: Channel[];
+  /**
+   * 是否显示波特率、负载统计与适配器初始化等总线设置。
+   * 这些只对串口上的 SLCAN 适配器有意义；RTT / BLE 只需要配置信号。
+   */
+  showBusSettings?: boolean;
   onCanBusChange: (config: CanBusConfig) => void;
   onChannelsChange: (channels: Channel[]) => void;
 }
@@ -28,7 +33,13 @@ const DEFAULT_SOURCE: CanSignalSource = {
   offset: 0,
 };
 
-export function CanSignalEditor({ canBus, channels, onCanBusChange, onChannelsChange }: CanSignalEditorProps) {
+export function CanSignalEditor({
+  canBus,
+  channels,
+  showBusSettings = true,
+  onCanBusChange,
+  onChannelsChange,
+}: CanSignalEditorProps) {
   const [importStatus, setImportStatus] = useState("");
   const updateChannel = (index: number, patch: Partial<Channel>) => {
     onChannelsChange(channels.map((channel, current) => (current === index ? { ...channel, ...patch } : channel)));
@@ -74,7 +85,11 @@ export function CanSignalEditor({ canBus, channels, onCanBusChange, onChannelsCh
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 11rem), 1fr))" }}>
+      {/* 总线设置只在串口 SLCAN 适配器场景显示；隐藏时保留节点，省得整段重排 */}
+      <div
+        className={showBusSettings ? "grid gap-3" : "hidden"}
+        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 11rem), 1fr))" }}
+      >
         <div className="space-y-2">
           <Label htmlFor="can-bitrate">CAN 波特率 (bit/s)</Label>
           <Input
@@ -135,7 +150,7 @@ export function CanSignalEditor({ canBus, channels, onCanBusChange, onChannelsCh
         </div>
       </div>
 
-      <div className="grid gap-3 rounded-[8px] border border-border/60 p-3">
+      <div className={showBusSettings ? "grid gap-3 rounded-[8px] border border-border/60 p-3" : "hidden"}>
         <label className="flex items-center justify-between gap-3 text-sm">
           <span className="min-w-0 leading-5">连接后自动初始化适配器</span>
           <Switch
@@ -186,7 +201,9 @@ export function CanSignalEditor({ canBus, channels, onCanBusChange, onChannelsCh
 
       {channels.length === 0 ? (
         <div className="rounded-[8px] border border-dashed border-border/70 p-4 text-center text-xs text-muted-foreground">
-          未配置信号时仍会解析 CAN 帧并统计总线负载。
+          {showBusSettings
+            ? "未配置信号时仍会解析 CAN 帧并统计总线负载。"
+            : "还没有信号。添加信号或导入 DBC 后，每个信号成为一条图表通道。"}
         </div>
       ) : (
         <div className="space-y-2">

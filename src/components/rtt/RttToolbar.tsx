@@ -476,6 +476,7 @@ export function RttToolbar() {
                         recording={sessionRecording}
                         setRecording={setSessionRecording}
                         getChartConfig={() => useRttStore.getState().chartConfig}
+                        getFraming={() => useRttStore.getState().rxFraming}
                         onBeforeReplay={() => useRttStore.getState().clearChartData()}
                         onReplayed={(result, config) => {
                           const state = useRttStore.getState();
@@ -589,6 +590,7 @@ export function RttToolbar() {
           setChartConfig={setChartConfig}
           title="RTT 图表配置"
           allowBytesParsers
+          allowDataFilter
           samples={chartSamples}
           open={chartConfigOpen}
           onOpenChange={setChartConfigOpen}

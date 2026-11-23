@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRttStore } from "@/stores/rttStore";
-import { DEFAULT_PARSER_CONFIG, type ColorTag } from "@/lib/rttColorParser";
+import { useSerialStore } from "@/stores/serialStore";
+import { useBluetoothStore } from "@/stores/bluetoothStore";
+import { DEFAULT_PARSER_CONFIG, parseColoredText, type ColorTag } from "@/lib/rttColorParser";
 import {
   Dialog,
   DialogContent,
@@ -26,7 +28,7 @@ interface ColorSettingsDialogProps {
 export function ColorSettingsDialog({
   trigger,
   title = "RTT 颜色标记设置",
-  description = "自定义颜色标记语法，让 RTT 输出更易读。例如：[red]错误信息[/]",
+  description = "自定义颜色标记语法，让 RTT 输出更易读。例如：[red]错误信息[/] 或 [red]错误信息[/red]",
 }: ColorSettingsDialogProps) {
   const { colorParserConfig, setColorParserConfig } = useRttStore(
     useShallow((state) => ({
@@ -37,6 +39,13 @@ export function ColorSettingsDialog({
   const [open, setOpen] = useState(false);
   const [localConfig, setLocalConfig] = useState(colorParserConfig);
 
+  // 示例按当前语法拼出（留空的项按默认值），并用同一个解析器实时预览，保存前就能确认写法生效
+  const p = localConfig.tagPrefix || DEFAULT_PARSER_CONFIG.tagPrefix;
+  const s = localConfig.tagSuffix || DEFAULT_PARSER_CONFIG.tagSuffix;
+  const c = localConfig.closeTag || DEFAULT_PARSER_CONFIG.closeTag;
+  const exampleText = `${p}red${s}错误信息${p}${c}${s} 普通文字 ${p}bg-blue${s}蓝底${p}${c}bg-blue${s}`;
+  const examplePreview = useMemo(() => parseColoredText(exampleText, localConfig), [exampleText, localConfig]);
+
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) {
       setLocalConfig(colorParserConfig);
@@ -45,7 +54,10 @@ export function ColorSettingsDialog({
   };
 
   const handleSave = () => {
+    // RTT、串口和蓝牙共用同一份颜色标记配置，保存后三处立即生效，不必重启
     setColorParserConfig(localConfig);
+    useSerialStore.getState().setColorParserConfig(localConfig);
+    useBluetoothStore.getState().setColorParserConfig(localConfig);
     setOpen(false);
   };
 
@@ -129,20 +141,26 @@ export function ColorSettingsDialog({
                 value={localConfig.closeTag}
                 onChange={(e) => setLocalConfig({ ...localConfig, closeTag: e.target.value })}
                 placeholder="/"
-                maxLength={1}
+                maxLength={2}
               />
             </div>
           </div>
 
           {/* 示例 */}
-          <div className="glass-section rounded-2xl p-3 text-sm">
-            <div className="font-medium mb-1">示例语法：</div>
-            <code>
-              {localConfig.tagPrefix}red{localConfig.tagSuffix}错误信息
-              {localConfig.tagPrefix}
-              {localConfig.closeTag}
-              {localConfig.tagSuffix}
-            </code>
+          <div className="glass-section space-y-1.5 rounded-2xl p-3 text-sm">
+            <div className="font-medium">示例语法：</div>
+            <code className="block break-all font-mono text-xs">{exampleText}</code>
+            <div className="text-xs text-muted-foreground">
+              {`${p}${c}${s} 关闭最近一个标记，${p}${c}标记名${s} 关闭同名标记；未配置的标记名（如 ${p}INFO${s}）原样显示。留空的前缀、后缀或关闭标记按默认值处理。`}
+            </div>
+            <div className="rounded-xl bg-muted/40 px-2 py-1.5 font-mono text-xs">
+              <span className="mr-2 text-muted-foreground">预览</span>
+              {examplePreview.map((segment, index) => (
+                <span key={index} style={segment.styles}>
+                  {segment.text}
+                </span>
+              ))}
+            </div>
           </div>
 
           {/* 标记列表 */}

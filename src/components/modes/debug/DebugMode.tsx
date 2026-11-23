@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
-import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockviewPanelProps } from "dockview-react";
+import {
+  DockviewReact,
+  type DockviewApi,
+  type DockviewReadyEvent,
+  type IDockviewPanelProps,
+  type SerializedDockview,
+} from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
 import { useDebugStore, type PanelId } from "@/stores/debugStore";
 import { useLogStore } from "@/stores/logStore";
@@ -9,6 +15,7 @@ import { PANEL_ORDER, PANEL_REGISTRY } from "./panels/panelRegistry";
 
 const HALT_POLL_INTERVAL_MS = 300;
 const BP_STORAGE_PREFIX = "debug_bp_";
+const LAYOUT_STORAGE_KEY = "debug_dock_layout";
 
 // dockview 要求每个面板组件接受 IDockviewPanelProps；我们的面板内容自己不需要 props，包一层。
 const dockviewComponents = Object.fromEntries(
@@ -99,6 +106,30 @@ function buildDefaultLayout(api: DockviewApi) {
   api.getPanel("source")?.api.setActive();
 }
 
+/** 恢复上次保存的面板布局；没有保存、数据损坏或恢复后一个面板都没有时返回 false */
+function restoreSavedLayout(api: DockviewApi): boolean {
+  try {
+    const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
+    if (!raw) return false;
+    api.fromJSON(JSON.parse(raw) as SerializedDockview);
+    if (api.panels.length > 0) return true;
+  } catch {
+    // 布局数据损坏或面板定义已变化：丢弃，回到默认布局
+  }
+  localStorage.removeItem(LAYOUT_STORAGE_KEY);
+  return false;
+}
+
+function saveLayout(api: DockviewApi) {
+  // 卸载过程中布局会被清空，空布局不保存，避免覆盖用户上次的排列
+  if (api.panels.length === 0) return;
+  try {
+    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(api.toJSON()));
+  } catch {
+    // 静默
+  }
+}
+
 function findReferenceForGroup(api: DockviewApi, group: ReinsertGroup): string | undefined {
   // 同分区里随便挑一个还活着的面板作为 referencePanel
   const candidates: Record<ReinsertGroup, PanelId[]> = {
@@ -143,6 +174,8 @@ export function DebugMode() {
   const loadedElfPath = useDebugStore((s) => s.loadedElfPath);
   const breakpoints = useDebugStore((s) => s.breakpoints);
   const setBreakpoints = useDebugStore((s) => s.setBreakpoints);
+  const refreshBreakpoints = useDebugStore((s) => s.refreshBreakpoints);
+  const setVisiblePanels = useDebugStore((s) => s.setVisiblePanels);
   const addLog = useLogStore((s) => s.addLog);
 
   // 断点持久化：每个 ELF 一份；attached + ELF 都齐了才恢复一次
@@ -219,7 +252,11 @@ export function DebugMode() {
             return;
           }
           if (status.core?.state === "halted") {
-            setDebugState("halted", "breakpoint", status.core.pc ?? null);
+            const pc = status.core.pc ?? null;
+            const pcText = `0x${(pc ?? 0).toString(16).padStart(8, "0")}`;
+            // 只有停在已设置的断点上才算命中；其他原因（如固件里的 BKPT 指令）标为未知
+            const hit = status.core.breakpoint_hit;
+            setDebugState("halted", hit ? "breakpoint" : "unknown", pc);
             try {
               const frames = await debugGetCallStack();
               setFrames(frames);
@@ -227,7 +264,13 @@ export function DebugMode() {
             } catch {
               // 忽略，halt 已经记录
             }
-            addLog("info", `命中断点 @ 0x${(status.core.pc ?? 0).toString(16).padStart(8, "0")}`);
+            if (hit) {
+              addLog("info", `命中断点 @ ${pcText}`);
+              // 命中次数已在后端 +1，刷新断点面板
+              await refreshBreakpoints().catch((error) => addLog("warn", `读断点列表失败: ${error}`));
+            } else {
+              addLog("info", `目标已停止 @ ${pcText}`);
+            }
             return;
           }
         } catch {
@@ -239,33 +282,45 @@ export function DebugMode() {
     return () => {
       cancelled = true;
     };
-  }, [state, setDebugState, setFrames, setCurrentFrameId, addLog]);
+  }, [state, setDebugState, setFrames, setCurrentFrameId, refreshBreakpoints, addLog]);
 
   const handleReady = useCallback(
     (event: DockviewReadyEvent) => {
-      apiRef.current = event.api;
-      buildDefaultLayout(event.api);
+      const api = event.api;
+      apiRef.current = api;
+      if (!restoreSavedLayout(api)) buildDefaultLayout(api);
+      // 面板显隐以实际布局为准（恢复的布局里可能关掉了某些面板）
+      setVisiblePanels(
+        Object.fromEntries(PANEL_ORDER.map((id) => [id, !!api.getPanel(id)])) as Record<PanelId, boolean>
+      );
 
       // 用户从 dockview tab 上关掉面板 → 同步 store
-      const disposable = event.api.onDidRemovePanel((panel) => {
+      const removeListener = api.onDidRemovePanel((panel) => {
         const id = panel.id as PanelId;
         if (id in PANEL_REGISTRY) {
           setPanelVisible(id, false);
         }
       });
+      // 拖动、分隔线调整、开关面板后保存布局，下次进入调试工作台时恢复
+      const layoutListener = api.onDidLayoutChange(() => saveLayout(api));
 
-      return () => disposable.dispose();
+      return () => {
+        removeListener.dispose();
+        layoutListener.dispose();
+      };
     },
-    [setPanelVisible]
+    [setPanelVisible, setVisiblePanels]
   );
 
   // 视图菜单勾选 → 同步 dockview
   useEffect(() => {
     const api = apiRef.current;
     if (!api) return;
+    // 读最新的 store：onReady 刚按恢复的布局同步过显隐，本次渲染拿到的可能还是旧值
+    const latest = useDebugStore.getState().visiblePanels;
     for (const id of PANEL_ORDER) {
       const exists = !!api.getPanel(id);
-      const shouldExist = visiblePanels[id];
+      const shouldExist = latest[id];
       if (shouldExist && !exists) {
         reinsertPanel(api, id);
       } else if (!shouldExist && exists) {

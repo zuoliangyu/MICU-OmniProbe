@@ -38,6 +38,9 @@ const VIEW_LABELS: Record<TriggerView, string> = {
  *
  * 状态指示从 chartPaused 与 triggeredAt 派生，不额外引入 store 状态——
  * 「采集中」是毫秒级瞬态，为它每批数据写一次 state 得不偿失。
+ *
+ * 单次模式捕获后检测器停在「已捕获」直到重新武装；用户点「恢复跟随」只是解冻画面，
+ * 因此只要单次模式下有触发点，就继续显示状态与重新武装按钮，不必清空数据才能再次触发。
  */
 export function TriggerSettingsPanel({
   chartConfig,
@@ -48,7 +51,10 @@ export function TriggerSettingsPanel({
 }: TriggerSettingsPanelProps) {
   const trigger = chartConfig.trigger;
   const channels = getVisibleYChannels(chartConfig);
-  const captured = triggeredAt !== null && chartPaused;
+  const frozen = triggeredAt !== null && chartPaused;
+  const holding = triggeredAt !== null && trigger.mode === "single";
+  const captured = frozen || holding;
+  const statusText = frozen ? "已捕获，图表已冻结" : holding ? "已捕获，等待重新武装" : "等待触发";
 
   const update = (patch: Partial<TriggerConfig>) => {
     setChartConfig({ ...chartConfig, trigger: { ...trigger, ...patch } });
@@ -176,7 +182,7 @@ export function TriggerSettingsPanel({
               <span
                 className={cn("h-1.5 w-1.5 rounded-full", captured ? "bg-amber-500" : "animate-pulse bg-emerald-500")}
               />
-              {captured ? "已捕获，图表已冻结" : "等待触发"}
+              {statusText}
             </span>
             {captured && (
               <Button size="sm" variant="outline" onClick={rearmTrigger} className="gap-1">
@@ -197,6 +203,9 @@ export function TriggerSettingsPanel({
 
           <div className="text-xs leading-4 text-muted-foreground">
             边沿条件只在数值穿越电平的那一刻成立，因此在电平附近抖动不会反复触发。
+            {trigger.mode === "normal"
+              ? "正常模式下冻结期间每完成一次新的捕获，画面都会换成最新一次捕获。"
+              : "单次模式捕获后即使恢复跟随也不再触发，点「重新武装」开始下一次。"}
           </div>
         </>
       )}

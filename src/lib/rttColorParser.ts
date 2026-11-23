@@ -66,8 +66,56 @@ export interface TextSegment {
   styles: React.CSSProperties;
 }
 
+// 转义正则表达式特殊字符，让前缀、后缀、关闭标记和标记名都按字面匹配
+const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+interface CompiledColorParser {
+  tagMap: Map<string, ColorTag>;
+  /** 没有任何可用标记时为 null */
+  tagRegex: RegExp | null;
+}
+
+// 每行渲染都会调用解析；配置对象来自 store，引用稳定，按引用缓存编译结果
+const compiledParsers = new WeakMap<ColorParserConfig, CompiledColorParser>();
+
+function compileColorParser(config: ColorParserConfig): CompiledColorParser {
+  const cached = compiledParsers.get(config);
+  if (cached) return cached;
+
+  // 前缀、后缀或关闭标记被清空时回落到默认值，否则空前缀会把正文里的单词当成标记
+  const prefix = escapeRegex(config.tagPrefix || DEFAULT_PARSER_CONFIG.tagPrefix);
+  const suffix = escapeRegex(config.tagSuffix || DEFAULT_PARSER_CONFIG.tagSuffix);
+  const close = escapeRegex(config.closeTag || DEFAULT_PARSER_CONFIG.closeTag);
+
+  // 标记名称到样式的映射；空名称无法书写，直接忽略
+  const tagMap = new Map<string, ColorTag>();
+  config.tags.forEach((tag) => {
+    if (tag.name) tagMap.set(tag.name, tag);
+  });
+
+  // 标记名按长度倒序参与匹配，保证 bg-red 不会被 red 抢先截断；
+  // 标记名本身也转义，因此可以包含连字符等任意字符
+  const names = Array.from(tagMap.keys())
+    .sort((left, right) => right.length - left.length)
+    .map(escapeRegex)
+    .join("|");
+  // 分组 1：关闭标记里的标记名（可省略）；分组 2：开始标记的标记名
+  const tagRegex = names ? new RegExp(`${prefix}(?:${close}(${names})?|(${names}))${suffix}`, "g") : null;
+
+  const compiled = { tagMap, tagRegex };
+  compiledParsers.set(config, compiled);
+  return compiled;
+}
+
 /**
  * 解析带颜色标记的文本
+ *
+ * 支持三种写法（以默认语法为例）：
+ * - `[red]文字` 开始标记，可嵌套
+ * - `[/red]` 关闭最近一个同名标记（连同其后打开的标记一起关闭）
+ * - `[/]` 关闭最近打开的一个标记
+ *
+ * 只识别已配置的标记名，`[INFO]`、`[12]` 这类普通方括号文本原样保留。
  * @param text 原始文本
  * @param config 解析配置
  * @returns 解析后的文本片段数组
@@ -77,66 +125,55 @@ export function parseColoredText(text: string, config: ColorParserConfig = DEFAU
     return [{ text, styles: {} }];
   }
 
+  const { tagMap, tagRegex } = compileColorParser(config);
+  if (!tagRegex) {
+    return [{ text, styles: {} }];
+  }
+  // 正则带 g 标志且被缓存复用，每次从头开始匹配
+  tagRegex.lastIndex = 0;
+
   const segments: TextSegment[] = [];
-  const { tagPrefix, tagSuffix, closeTag, tags } = config;
-
-  // 创建标记名称到样式的映射
-  const tagMap = new Map<string, ColorTag>();
-  tags.forEach((tag) => tagMap.set(tag.name, tag));
-
-  // 转义正则表达式特殊字符
-  const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const prefix = escapeRegex(tagPrefix);
-  const suffix = escapeRegex(tagSuffix);
-
-  // 匹配开始标记和结束标记的正则
-  // 支持 [tag] 和 [/tag] 或 [/]
-  const tagRegex = new RegExp(`${prefix}(/?)(\\w+)${suffix}`, "g");
-
   let lastIndex = 0;
   let currentStyles: React.CSSProperties = {};
-  const styleStack: React.CSSProperties[] = [];
+  // 栈中保存每个已打开标记的名称与打开前的样式，关闭时按名称回退
+  const styleStack: Array<{ name: string; previous: React.CSSProperties }> = [];
 
   let match: RegExpExecArray | null;
 
   while ((match = tagRegex.exec(text)) !== null) {
-    const [fullMatch, isClosing, tagName] = match;
+    const [fullMatch, closingName, openingName] = match;
     const matchIndex = match.index;
 
     // 添加标记前的文本
     if (matchIndex > lastIndex) {
-      const textBefore = text.substring(lastIndex, matchIndex);
-      if (textBefore) {
-        segments.push({
-          text: textBefore,
-          styles: { ...currentStyles },
-        });
-      }
+      segments.push({
+        text: text.substring(lastIndex, matchIndex),
+        styles: { ...currentStyles },
+      });
     }
 
-    if (isClosing === closeTag) {
-      // 关闭标记
-      if (tagName === "" || styleStack.length > 0) {
-        // [/] 或有样式栈时，弹出最近的样式
-        currentStyles = styleStack.pop() || {};
+    const tag = openingName === undefined ? undefined : tagMap.get(openingName);
+    if (!tag) {
+      // 关闭标记：[/] 关闭最近一个；[/name] 回退到最近一个同名标记打开之前，没有同名标记时忽略
+      const targetIndex = closingName
+        ? styleStack.map((entry) => entry.name).lastIndexOf(closingName)
+        : styleStack.length - 1;
+      if (targetIndex >= 0) {
+        currentStyles = styleStack[targetIndex].previous;
+        styleStack.length = targetIndex;
       }
     } else {
-      // 开始标记
-      const tag = tagMap.get(tagName);
-      if (tag) {
-        // 保存当前样式到栈
-        styleStack.push({ ...currentStyles });
+      // 开始标记：保存当前样式到栈，再叠加新样式
+      styleStack.push({ name: tag.name, previous: currentStyles });
 
-        // 应用新样式
-        const newStyles: React.CSSProperties = { ...currentStyles };
-        if (tag.color) newStyles.color = tag.color;
-        if (tag.backgroundColor) newStyles.backgroundColor = tag.backgroundColor;
-        if (tag.fontWeight) newStyles.fontWeight = tag.fontWeight;
-        if (tag.fontStyle) newStyles.fontStyle = tag.fontStyle;
-        if (tag.textDecoration) newStyles.textDecoration = tag.textDecoration;
+      const newStyles: React.CSSProperties = { ...currentStyles };
+      if (tag.color) newStyles.color = tag.color;
+      if (tag.backgroundColor) newStyles.backgroundColor = tag.backgroundColor;
+      if (tag.fontWeight) newStyles.fontWeight = tag.fontWeight;
+      if (tag.fontStyle) newStyles.fontStyle = tag.fontStyle;
+      if (tag.textDecoration) newStyles.textDecoration = tag.textDecoration;
 
-        currentStyles = newStyles;
-      }
+      currentStyles = newStyles;
     }
 
     lastIndex = matchIndex + fullMatch.length;

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ConnectOptions, ConnectionInfo } from "./types";
+import type { ConnectOptions, ConnectionInfo, ResetMode } from "./types";
 
 export interface DebugAttachOptions extends ConnectOptions {
   halt_after_attach?: boolean;
@@ -8,6 +8,8 @@ export interface DebugAttachOptions extends ConnectOptions {
 export interface DebugCoreState {
   state: "halted" | "running";
   pc: number | null;
+  /** 这次停下是否停在已设置的断点上（后端已给该断点命中次数 +1） */
+  breakpoint_hit: boolean;
 }
 
 export interface DebugStatus {
@@ -93,14 +95,41 @@ export async function debugStepOut(): Promise<DebugCoreState> {
   return await invoke<DebugCoreState>("debug_step_out");
 }
 
-export async function debugReset(): Promise<DebugCoreState> {
-  return await invoke<DebugCoreState>("debug_reset");
+/** resetMode 对应配置检查器「复位方式」，省略为软件复位。 */
+export async function debugReset(resetMode?: ResetMode): Promise<DebugCoreState> {
+  return await invoke<DebugCoreState>("debug_reset", { resetMode });
 }
 
 // 内存读写
 // 后端以原始二进制返回；调用方按普通数组做格式化，读取量小（面板级），直接转换即可
 export async function debugReadMemory(address: number, size: number): Promise<number[]> {
   return Array.from(new Uint8Array(await invoke<ArrayBuffer>("debug_read_memory", { options: { address, size } })));
+}
+
+/** 字节按十六进制空格分隔，如 "01 A0 FF" */
+export function formatHexBytes(bytes: number[]): string {
+  return bytes.map((b) => b.toString(16).toUpperCase().padStart(2, "0")).join(" ");
+}
+
+export interface LeScalar {
+  hex: string;
+  unsigned: string;
+  signed: string;
+}
+
+const SCALAR_SIZES = [1, 2, 4, 8];
+
+/** 1/2/4/8 字节按小端解释成整数（Cortex-M 为小端）；其他长度返回 null */
+export function formatLeScalar(bytes: number[]): LeScalar | null {
+  if (!SCALAR_SIZES.includes(bytes.length)) return null;
+  const digits = bytes.length * 2;
+  // 8 字节超出 Number 精度，统一用 BigInt
+  const value = bytes.reduceRight((acc, b) => (acc << 8n) | BigInt(b), 0n);
+  return {
+    hex: `0x${value.toString(16).toUpperCase().padStart(digits, "0")}`,
+    unsigned: value.toString(),
+    signed: BigInt.asIntN(digits * 4, value).toString(),
+  };
 }
 
 // 寄存器读写

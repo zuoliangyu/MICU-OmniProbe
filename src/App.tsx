@@ -341,6 +341,8 @@ function selectChartHostState(state: TelemetryChartState) {
     chartPaused: state.chartPaused,
     parseSuccessCount: state.parseSuccessCount,
     parseFailCount: state.parseFailCount,
+    triggeredAt: state.triggeredAt,
+    triggerCapture: state.triggerCapture,
     setChartPaused: state.setChartPaused,
     clearChartData: state.clearChartData,
     setChartConfig: state.setChartConfig,
@@ -361,6 +363,8 @@ function useTelemetryChartHost(
     chartPaused,
     parseSuccessCount,
     parseFailCount,
+    triggeredAt,
+    triggerCapture,
     setChartPaused,
     clearChartData,
     setChartConfig,
@@ -377,6 +381,9 @@ function useTelemetryChartHost(
       chartPaused,
       parseSuccessCount,
       parseFailCount,
+      triggeredAt,
+      // 只有冻结在捕获画面时才需要同步快照，省掉解冻后无用的序列化
+      triggerCapture: chartPaused ? triggerCapture : null,
     }),
     [
       chartConfig,
@@ -389,6 +396,8 @@ function useTelemetryChartHost(
       source,
       subtitle,
       title,
+      triggerCapture,
+      triggeredAt,
     ]
   );
 
@@ -414,14 +423,17 @@ function BluetoothChartWorkspaceHost() {
 }
 
 /**
- * 自动断开：只在「开启 + 已连接 + RTT 未运行」时挂载空闲计时。
+ * 自动断开：只在「开启 + 已连接 + RTT 未运行 + 没有烧录类操作进行中」时挂载空闲计时。
+ * 烧录、擦除、校验、读取、解锁期间用户可能长时间不操作，不能中途断开；
+ * 操作结束后重新挂载，空闲计时从头开始。
  * 独立成组件是为了让计时与活动检测不牵动 MainApp 整棵树重渲染。
  */
 function AutoDisconnectGate() {
   const enabled = useProbeStore((s) => s.autoDisconnect && s.connected);
   const timeoutMs = useProbeStore((s) => s.autoDisconnectTimeout);
   const rttRunning = useRttStore((s) => s.isRunning);
-  return enabled && !rttRunning ? <AutoDisconnectWatcher timeoutMs={timeoutMs} /> : null;
+  const flashing = useFlashStore((s) => s.flashing);
+  return enabled && !rttRunning && !flashing ? <AutoDisconnectWatcher timeoutMs={timeoutMs} /> : null;
 }
 
 function AutoDisconnectWatcher({ timeoutMs }: { timeoutMs: number }) {

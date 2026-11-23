@@ -187,10 +187,32 @@ export function parseWithRegex(
   }
 }
 
+/** 分隔符输入框支持的单字符转义 */
+const DELIMITER_ESCAPES: Record<string, string> = { t: "\t", n: "\n", r: "\r", "\\": "\\" };
+
+/**
+ * 把分隔符输入框里的转义序列还原成实际字符：`\t`、`\n`、`\r`、`\\` 和 `\xHH`。
+ * 已经是实际字符（如智能识别写入的制表符）时原样返回；无法识别的转义保留字面。
+ */
+export function decodeDelimiter(delimiter: string): string {
+  if (!delimiter.includes("\\")) return delimiter;
+  return delimiter.replace(/\\(x[0-9a-fA-F]{2}|.)/g, (match, code: string) =>
+    code.length === 3 ? String.fromCharCode(parseInt(code.slice(1), 16)) : (DELIMITER_ESCAPES[code] ?? match)
+  );
+}
+
+/** decodeDelimiter 的反向：把不可见字符写成转义序列，便于在输入框里看清 */
+export function encodeDelimiter(delimiter: string): string {
+  return delimiter.replace(/[\\\t\n\r]/g, (char) =>
+    char === "\t" ? "\\t" : char === "\n" ? "\\n" : char === "\r" ? "\\r" : "\\\\"
+  );
+}
+
 /**
  * 使用分隔符解析数据
  *
  * 每条 channel 对应一列；sourceIndex 缺失时退回到 channel 在数组里的位置。
+ * 分隔符支持转义序列，见 decodeDelimiter。
  */
 export function parseWithDelimiter(
   text: string,
@@ -199,7 +221,11 @@ export function parseWithDelimiter(
   timestamp = Date.now()
 ): ParseResult {
   try {
-    const parts = text.split(delimiter);
+    const separator = decodeDelimiter(delimiter);
+    if (!separator) {
+      return { success: false, error: "分隔符为空" };
+    }
+    const parts = text.split(separator);
     const values: Record<string, number> = {};
 
     for (let i = 0; i < channels.length; i += 1) {

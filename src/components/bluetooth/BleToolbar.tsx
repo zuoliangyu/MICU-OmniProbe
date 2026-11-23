@@ -271,6 +271,7 @@ export function BleToolbar() {
         setChartConfig={setChartConfig}
         title="BLE 图表配置"
         allowBytesParsers
+        allowDataFilter
         samples={chartSamples}
         open={chartConfigOpen}
         onOpenChange={setChartConfigOpen}

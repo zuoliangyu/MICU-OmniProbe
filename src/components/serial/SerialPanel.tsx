@@ -28,6 +28,7 @@ function SerialChartViewer() {
     chartConfig,
     chartPaused,
     triggeredAt,
+    triggerCapture,
     parseSuccessCount,
     parseFailCount,
     setChartPaused,
@@ -41,6 +42,7 @@ function SerialChartViewer() {
       chartConfig: state.chartConfig,
       chartPaused: state.chartPaused,
       triggeredAt: state.triggeredAt,
+      triggerCapture: state.triggerCapture,
       parseSuccessCount: state.parseSuccessCount,
       parseFailCount: state.parseFailCount,
       setChartPaused: state.setChartPaused,
@@ -51,6 +53,7 @@ function SerialChartViewer() {
 
   const chart = (
     <ChartViewer
+      source="serial"
       chartData={chartData}
       processedData={processedChartData}
       filterActive={filterActive}
@@ -62,6 +65,7 @@ function SerialChartViewer() {
       clearChartData={clearChartData}
       setChartConfig={setChartConfig}
       triggeredAt={triggeredAt}
+      triggerCapture={triggerCapture}
     />
   );
   return chartConfig.parseMode === "slcan" ? <SerialCanWorkspace chart={chart} /> : chart;

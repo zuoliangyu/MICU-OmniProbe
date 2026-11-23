@@ -3,14 +3,28 @@
  */
 
 import { useState, useEffect } from "react";
-import { FolderOpen, Save, Unlock, Trash2, CheckCircle, Upload, Zap, RotateCcw, Square, Play } from "lucide-react";
+import {
+  FolderOpen,
+  FolderInput,
+  Save,
+  Unlock,
+  Trash2,
+  CheckCircle,
+  Upload,
+  Zap,
+  RotateCcw,
+  Square,
+  Play,
+} from "lucide-react";
 import { TooltipButton, TooltipWrapper } from "@/components/ui/tooltip-button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useProbeStore } from "@/stores/probeStore";
+import { buildConnectOptions, useProbeStore } from "@/stores/probeStore";
+import { useChipStore } from "@/stores/chipStore";
 import { useFlashStore } from "@/stores/flashStore";
 import { useLogStore } from "@/stores/logStore";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useFirmwareFile } from "./useFirmwareFile";
+import { useFlashProject } from "./useFlashProject";
 import {
   flashFirmware,
   eraseChip,
@@ -19,10 +33,18 @@ import {
   readFlash,
   getFirmwareInfo,
   writeBinaryFile,
+  resetTarget,
+  haltTarget,
+  resumeTarget,
+  unlockChip,
+  getConnectionStatus,
 } from "@/lib/tauri";
 import { listen } from "@tauri-apps/api/event";
-import type { FlashProgressEvent, EraseMode } from "@/lib/types";
+import { RESET_MODE_LABELS, type FlashProgressEvent, type EraseMode } from "@/lib/types";
+import { formatHex } from "@/lib/utils";
 import { EraseDialog } from "@/components/dialogs/EraseDialog";
+import { ReadFlashDialog } from "@/components/dialogs/ReadFlashDialog";
+import { UnlockChipDialog } from "@/components/dialogs/UnlockChipDialog";
 import { useShallow } from "zustand/react/shallow";
 
 function ToolbarSeparator() {
@@ -30,7 +52,17 @@ function ToolbarSeparator() {
 }
 
 export function FlashToolbar() {
-  const connected = useProbeStore((state) => state.connected);
+  const { connected, connecting, selectedProbe, settings, targetInfo, setConnected } = useProbeStore(
+    useShallow((state) => ({
+      connected: state.connected,
+      connecting: state.loading,
+      selectedProbe: state.selectedProbe,
+      settings: state.settings,
+      targetInfo: state.targetInfo,
+      setConnected: state.setConnected,
+    }))
+  );
+  const selectedChip = useChipStore((state) => state.selectedChip);
   const {
     firmwarePath,
     flashing,
@@ -60,7 +92,13 @@ export function FlashToolbar() {
   );
   const addLog = useLogStore((state) => state.addLog);
   const [eraseDialogOpen, setEraseDialogOpen] = useState(false);
+  const [readDialogOpen, setReadDialogOpen] = useState(false);
+  const [unlockDialogOpen, setUnlockDialogOpen] = useState(false);
   const { openFirmwareDialog } = useFirmwareFile();
+  const { saveProject, openProject } = useFlashProject();
+
+  const flashRegions = targetInfo?.memory_regions.filter((region) => region.kind === "Flash") ?? [];
+  const deviceBusy = !connected || flashing;
 
   useEffect(() => {
     const unlisten = listen<FlashProgressEvent>("flash-progress", (event) => {
@@ -73,16 +111,6 @@ export function FlashToolbar() {
       unlisten.then((fn) => fn());
     };
   }, [setProgress, addLog]);
-
-  const handleSaveProject = async () => {
-    const path = await save({
-      filters: [{ name: "项目文件", extensions: ["daplink"] }],
-    });
-
-    if (path) {
-      addLog("info", `项目已保存: ${path}`);
-    }
-  };
 
   const handleFlash = async () => {
     if (!firmwarePath) {
@@ -122,6 +150,7 @@ export function FlashToolbar() {
         erase_mode: eraseMode,
         use_custom_address: useCustomAddress,
         custom_flash_address: useCustomAddress ? customFlashAddress : undefined,
+        reset_mode: settings.resetMode,
       });
 
       addLog("success", "烧录成功");
@@ -177,7 +206,7 @@ export function FlashToolbar() {
     try {
       setFlashing(true);
       addLog("info", "开始校验");
-      // 与烧录使用同一地址，否则自定义地址烧录的 BIN 必定校验不匹配
+      // 与烧录使用同一地址，否则自定义地址烧录的 BIN 必定校验不匹配（HEX / ELF 自带地址，后端忽略）
       const result = await verifyFirmware(firmwarePath, useCustomAddress ? customFlashAddress : undefined);
       if (result) {
         addLog("success", "校验通过");
@@ -191,30 +220,67 @@ export function FlashToolbar() {
     }
   };
 
-  const handleRead = async () => {
-    if (!connected) {
-      addLog("error", "请先连接设备");
-      return;
-    }
-
+  const handleReadConfirm = async (address: number, size: number) => {
     const path = await save({
+      defaultPath: `${selectedChip ?? "flash"}_${formatHex(address)}_${size}B.bin`,
       filters: [{ name: "二进制文件", extensions: ["bin"] }],
     });
+    if (!path) return;
 
-    if (path) {
-      try {
-        setFlashing(true);
-        addLog("info", "开始读取Flash");
-        const data = await readFlash(0x08000000, 0x10000); // 64KB
-        await writeBinaryFile(path, data);
-        addLog("success", `已读取 ${data.length} 字节到 ${path}`);
-      } catch (error) {
-        addLog("error", `读取失败: ${error}`);
-      } finally {
-        setFlashing(false);
-      }
+    try {
+      setFlashing(true);
+      addLog("info", `开始读取 Flash: ${formatHex(address)} 起 ${size} 字节`);
+      const data = await readFlash(address, size);
+      await writeBinaryFile(path, data);
+      addLog("success", `已读取 ${data.length} 字节到 ${path}`);
+    } catch (error) {
+      addLog("error", `读取失败: ${error}`);
+    } finally {
+      setFlashing(false);
     }
   };
+
+  const handleUnlockConfirm = async () => {
+    if (!selectedProbe || !selectedChip) return;
+    try {
+      setFlashing(true);
+      setProgress(0, "erase", "正在解锁芯片...");
+      addLog("warn", `开始解锁 ${selectedChip}：将擦除全部 Flash`);
+      const target = await unlockChip(buildConnectOptions(selectedProbe, selectedChip, settings));
+      const status = await getConnectionStatus();
+      setConnected(true, status.info, target);
+      addLog("success", `${selectedChip} 已解锁并完成全片擦除，连接已保持`);
+    } catch (error) {
+      // 后端在解锁前已关闭原有烧录连接
+      setConnected(false);
+      addLog("error", `解锁失败: ${error}`);
+    } finally {
+      setFlashing(false);
+    }
+  };
+
+  /** 复位 / 停止 / 运行：耗时很短，只记录结果 */
+  const runTargetControl = async (label: string, action: () => Promise<string>) => {
+    try {
+      addLog("success", await action());
+    } catch (error) {
+      addLog("error", `${label}失败: ${error}`);
+    }
+  };
+
+  const handleReset = () =>
+    runTargetControl("复位", async () => {
+      await resetTarget(settings.resetMode);
+      return `已复位芯片（${RESET_MODE_LABELS[settings.resetMode]}）`;
+    });
+
+  const handleHalt = () => runTargetControl("停止", async () => `内核已停止，PC = ${formatHex(await haltTarget())}`);
+
+  const handleResume = () =>
+    runTargetControl("运行", async () => {
+      await resumeTarget();
+      return "内核已恢复运行";
+    });
 
   return (
     <div className="flex items-center h-10 px-2 border-b border-border bg-muted/30">
@@ -232,9 +298,18 @@ export function FlashToolbar() {
           variant="ghost"
           size="icon"
           className="h-8 w-8"
+          icon={<FolderInput className="h-4 w-4" />}
+          tooltip="打开项目（恢复固件、芯片与烧录设置）"
+          disabled={flashing}
+          onClick={openProject}
+        />
+        <TooltipButton
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
           icon={<Save className="h-4 w-4" />}
           tooltip="保存项目"
-          onClick={handleSaveProject}
+          onClick={saveProject}
         />
         <ToolbarSeparator />
 
@@ -244,8 +319,9 @@ export function FlashToolbar() {
           size="icon"
           className="h-8 w-8"
           icon={<Unlock className="h-4 w-4" />}
-          tooltip="解锁芯片"
-          disabled={!connected || flashing}
+          tooltip="解锁芯片（整片擦除以解除读保护，未连接也可使用）"
+          disabled={flashing || connecting || !selectedProbe || !selectedChip}
+          onClick={() => setUnlockDialogOpen(true)}
         />
         <ToolbarSeparator />
 
@@ -256,7 +332,7 @@ export function FlashToolbar() {
           className="h-8 gap-1.5 px-2.5 text-xs"
           icon={<Trash2 className="h-4 w-4" />}
           tooltip="擦除 Flash"
-          disabled={!connected || flashing}
+          disabled={deviceBusy}
           onClick={handleErase}
         >
           擦除
@@ -283,8 +359,8 @@ export function FlashToolbar() {
           size="sm"
           className="h-8 gap-1.5 px-2.5 text-xs"
           icon={<CheckCircle className="h-4 w-4" />}
-          tooltip="校验"
-          disabled={!connected || flashing || !firmwarePath}
+          tooltip="校验 Flash 与固件是否一致（支持 HEX / BIN / ELF / AXF / OUT）"
+          disabled={deviceBusy || !firmwarePath}
           onClick={handleVerify}
         >
           校验
@@ -294,9 +370,9 @@ export function FlashToolbar() {
           size="sm"
           className="h-8 gap-1.5 px-2.5 text-xs"
           icon={<Upload className="h-4 w-4" />}
-          tooltip="读取 Flash"
-          disabled={!connected || flashing}
-          onClick={handleRead}
+          tooltip="读取 Flash 并保存为 BIN 文件"
+          disabled={deviceBusy}
+          onClick={() => setReadDialogOpen(true)}
         >
           读取
         </TooltipButton>
@@ -306,7 +382,7 @@ export function FlashToolbar() {
           className="h-8 gap-1.5 px-3 text-xs"
           icon={<Zap className="h-4 w-4" />}
           tooltip="一键烧录"
-          disabled={!connected || flashing || !firmwarePath}
+          disabled={deviceBusy || !firmwarePath}
           onClick={handleFlash}
         >
           烧录
@@ -319,24 +395,27 @@ export function FlashToolbar() {
           size="icon"
           className="h-8 w-8"
           icon={<RotateCcw className="h-4 w-4" />}
-          tooltip="复位"
-          disabled={!connected || flashing}
+          tooltip={`复位（${RESET_MODE_LABELS[settings.resetMode]}，可在配置检查器「接口设置」中切换）`}
+          disabled={deviceBusy}
+          onClick={handleReset}
         />
         <TooltipButton
           variant="ghost"
           size="icon"
           className="h-8 w-8"
           icon={<Square className="h-4 w-4" />}
-          tooltip="停止"
-          disabled={!connected || flashing}
+          tooltip="停止（暂停内核）"
+          disabled={deviceBusy}
+          onClick={handleHalt}
         />
         <TooltipButton
           variant="ghost"
           size="icon"
           className="h-8 w-8"
           icon={<Play className="h-4 w-4" />}
-          tooltip="运行"
-          disabled={!connected || flashing}
+          tooltip="运行（恢复内核运行）"
+          disabled={deviceBusy}
+          onClick={handleResume}
         />
       </div>
 
@@ -349,8 +428,20 @@ export function FlashToolbar() {
         )}
       </div>
 
-      {/* Erase dialog */}
+      {/* Dialogs */}
       <EraseDialog open={eraseDialogOpen} onOpenChange={setEraseDialogOpen} onConfirm={handleEraseConfirm} />
+      <ReadFlashDialog
+        open={readDialogOpen}
+        onOpenChange={setReadDialogOpen}
+        regions={flashRegions}
+        onConfirm={handleReadConfirm}
+      />
+      <UnlockChipDialog
+        open={unlockDialogOpen}
+        onOpenChange={setUnlockDialogOpen}
+        chipName={selectedChip ?? ""}
+        onConfirm={handleUnlockConfirm}
+      />
     </div>
   );
 }

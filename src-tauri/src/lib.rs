@@ -80,6 +80,10 @@ pub fn run() {
             flash::verify_firmware,
             flash::read_flash,
             flash::get_firmware_info,
+            flash::reset_target,
+            flash::halt_target,
+            flash::resume_target,
+            flash::unlock_chip,
             // RTT命令
             rtt::start_rtt,
             rtt::stop_rtt,

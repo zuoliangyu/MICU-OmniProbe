@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { open } from "@tauri-apps/plugin-shell";
+import { openUserDocs, userDocUrl } from "@/lib/userDocs";
 import { AlertCircle, CheckCircle2, ChevronLeft, CircleHelp, ExternalLink, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,8 +29,6 @@ import { LazyChartConfigDialog } from "@/components/lazyDialogs";
 import { CanSignalEditor } from "@/components/serial/CanSignalEditor";
 import { BinaryProtocolDesigner } from "@/components/serial/BinaryProtocolDesigner";
 import { loadBinaryProtocolLibrary } from "@/lib/binaryProtocolLibrary";
-
-const DATA_FORMAT_DOC_URL = "https://zuoliangyu.github.io/MICU-OmniProbe/#/DATA_FORMAT_GUIDE";
 
 interface ChartParserPanelProps {
   chartConfig: ChartConfig;
@@ -175,11 +173,7 @@ export function ChartParserPanel({
               size="sm"
               variant="outline"
               className="w-full gap-2"
-              onClick={() =>
-                void open(`${DATA_FORMAT_DOC_URL}?id=${parseMode}`).catch((error) =>
-                  console.error("打开数据格式文档失败:", error)
-                )
-              }
+              onClick={() => openUserDocs(`${userDocUrl("DATA_FORMAT_GUIDE")}?id=${parseMode}`)}
             >
               查看完整文档
               <ExternalLink className="h-3.5 w-3.5" />
@@ -238,6 +232,11 @@ export function ChartParserPanel({
               placeholder=", / \t / ; / 空格"
               className="font-mono"
             />
+            <p className="text-xs leading-5 text-muted-foreground">
+              制表符写 <code className="font-mono">\t</code>，也支持 <code className="font-mono">\r</code>、
+              <code className="font-mono">\n</code>、<code className="font-mono">\\</code>（反斜杠）和{" "}
+              <code className="font-mono">\xHH</code>。
+            </p>
           </div>
         )}
 

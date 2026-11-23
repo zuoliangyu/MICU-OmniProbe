@@ -87,6 +87,11 @@ export interface FlashAlgorithmInfo {
 // 擦除模式
 export type EraseMode = "ChipErase" | "SectorErase";
 
+// 复位方式：软件复位（内核系统复位请求）/ 硬件复位（探针拉低 nRST 引脚）
+export type ResetMode = "Software" | "Hardware";
+
+export const RESET_MODE_LABELS: Record<ResetMode, string> = { Software: "软件复位", Hardware: "硬件复位" };
+
 // Flash烧录选项
 export interface FlashOptions {
   file_path: string;
@@ -97,6 +102,7 @@ export interface FlashOptions {
   use_custom_address?: boolean; // 仅 BIN 格式：使用自定义烧录地址
   custom_flash_address?: number;
   preverify?: boolean; // 预校验：烧录前检查，跳过已正确的块（加速重复烧录）
+  reset_mode?: ResetMode; // 烧录后复位使用的复位方式，省略为软件复位
 }
 
 // Flash进度事件
@@ -230,7 +236,7 @@ export interface DeviceSettings {
   interfaceType: "SWD" | "JTAG";
   clockSpeed: number;
   connectMode: "Normal" | "UnderReset";
-  resetMode: "Software" | "Hardware";
+  resetMode: ResetMode;
   voltage: number;
 }
 

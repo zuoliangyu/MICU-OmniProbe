@@ -13,8 +13,16 @@ try {
     previewChartParser,
     resolveAppliedParserChannels,
   } = await server.ssrLoadModule("/src/lib/chartAnalysis.ts");
-  const { listChartParsers, parseChartData, parseChartLines, parseWithDelimiter, parseWithKv, registerChartParser } =
-    await server.ssrLoadModule("/src/lib/parseChartData.ts");
+  const {
+    decodeDelimiter,
+    encodeDelimiter,
+    listChartParsers,
+    parseChartData,
+    parseChartLines,
+    parseWithDelimiter,
+    parseWithKv,
+    registerChartParser,
+  } = await server.ssrLoadModule("/src/lib/parseChartData.ts");
   const { ChartIngestionBuffer, appendChartData } = await server.ssrLoadModule("/src/lib/chartIngestion.ts");
   const { parseRttData, parseSerialData, TextFrameStream } = await server.ssrLoadModule("/src/lib/dataFraming.ts");
   const { DEFAULT_CHART_CONFIG, getSignalWorkspaceTransition, isSignalWorkspaceActive, migrateChartConfig } =
@@ -332,6 +340,56 @@ try {
   assert.equal(parseChartData("INFO boot 123", prefixedConfig).ignored, true);
   assert.equal(parseChartData("P:42,7", prefixedConfig).dataPoint.values.field1, 42);
   assert.equal(parseWithDelimiter("42Hz", ",", prefixedConfig.channels).success, false);
+
+  // ---- 分隔符转义：输入框写 \t 等转义序列，串口、RTT、BLE 共用同一条解析路径 ----
+  {
+    const columns = [
+      { key: "a", sourceIndex: 0 },
+      { key: "b", sourceIndex: 1 },
+    ];
+    assert.equal(decodeDelimiter("\\t"), "\t");
+    assert.equal(decodeDelimiter("\\r\\n"), "\r\n");
+    assert.equal(decodeDelimiter("\\\\"), "\\");
+    assert.equal(decodeDelimiter("\\x1F"), "\x1f");
+    assert.equal(decodeDelimiter("\t"), "\t", "已经是实际字符时原样返回");
+    assert.equal(decodeDelimiter("\\q"), "\\q", "无法识别的转义保留字面");
+    assert.equal(decodeDelimiter(encodeDelimiter("\t;\\")), "\t;\\", "编码后再解码应还原");
+
+    assert.deepEqual(parseWithDelimiter("1.5\t2.5", "\\t", columns).dataPoint.values, { a: 1.5, b: 2.5 });
+    assert.deepEqual(parseWithDelimiter("3\\4", "\\\\", columns).dataPoint.values, { a: 3, b: 4 });
+    assert.deepEqual(parseWithDelimiter("5\x1f6", "\\x1f", columns).dataPoint.values, { a: 5, b: 6 });
+    assert.equal(parseWithDelimiter("1,2", "", columns).success, false, "空分隔符不应把每个字符拆成一列");
+
+    // 走完整的 parseChartData（RTT / BLE / 串口文本行的共同入口）
+    const tabConfig = {
+      ...DEFAULT_CHART_CONFIG,
+      enabled: true,
+      parseMode: "delimiter",
+      delimiter: "\\t",
+      channels: columns,
+    };
+    assert.deepEqual(parseChartData("7\t8", tabConfig).dataPoint.values, { a: 7, b: 8 });
+
+    // 打开配置窗口时按转义分隔符预建通道
+    const tabChannels = populateEmptyChannelsFromSamples(
+      { ...DEFAULT_CHART_CONFIG, parseMode: "delimiter", delimiter: "\\t" },
+      [{ text: "1\t2" }, { text: "3\t4" }]
+    );
+    assert.deepEqual(
+      tabChannels.channels.map(({ sourceIndex }) => sourceIndex),
+      [0, 1]
+    );
+
+    // 智能识别出制表符时写成可见的 \t，并且能直接用于解析
+    const detectedTab = detectChartConfig(DEFAULT_CHART_CONFIG, [
+      { text: "1.5\t2.5\t3.5" },
+      { text: "4.5\t5.5\t6.5" },
+      { text: "7.5\t8.5\t9.5" },
+    ]);
+    assert.equal(detectedTab.config.parseMode, "delimiter");
+    assert.equal(detectedTab.config.delimiter, "\\t");
+    assert.equal(parseChartData("1.5\t2.5\t3.5", detectedTab.config).success, true);
+  }
 
   const sourceTimestamp = 1_721_814_274_123;
   const parsedBatch = parseChartLines([{ text: "P:42,7", timestamp: new Date(sourceTimestamp) }], prefixedConfig);

@@ -1,15 +1,17 @@
-use crate::commands::with_session;
+use crate::commands::probe::{open_session_with_permissions, ConnectOptions, TargetInfo};
+use crate::commands::{blocking, with_session};
 use crate::error::{AppError, AppResult};
-use crate::state::AppState;
+use crate::state::{AppState, ResetMode};
 use parking_lot::Mutex;
 use probe_rs::flashing::{
-    download_file_with_options, erase, erase_all, BinLoader, BinOptions, DownloadOptions, ElfLoader, ElfOptions,
-    FlashProgress, HexLoader, ImageLoader, ProgressEvent, ProgressOperation,
+    build_loader, download_file_with_options, erase, erase_all, BinLoader, BinOptions, DownloadOptions, ElfLoader,
+    ElfOptions, FlashProgress, HexLoader, ImageLoader, ProgressEvent, ProgressOperation,
 };
-use probe_rs::{MemoryInterface, Session};
+use probe_rs::{MemoryInterface, Permissions, Session};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::ipc::Response;
 use tauri::{Emitter, State, Window};
 
@@ -69,6 +71,9 @@ pub struct FlashOptions {
     // 预校验：烧录前检查，跳过已正确的块（加速重复烧录）
     #[serde(default)]
     pub preverify: bool,
+    // 烧录后复位使用的复位方式（配置检查器「复位方式」）
+    #[serde(default)]
+    pub reset_mode: ResetMode,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -76,6 +81,18 @@ pub struct FlashProgressEvent {
     pub phase: String,
     pub progress: f32,
     pub message: String,
+}
+
+/// 向前端发送一条烧录进度（失败忽略：窗口关闭时没有接收方）
+fn emit_progress(window: &Window, phase: &str, progress: f32, message: impl Into<String>) {
+    let _ = window.emit(
+        "flash-progress",
+        FlashProgressEvent {
+            phase: phase.to_string(),
+            progress,
+            message: message.into(),
+        },
+    );
 }
 
 #[tauri::command]
@@ -102,16 +119,11 @@ fn default_flash_start(session: &Session) -> u64 {
         .unwrap_or(0x08000000) // 默认STM32 Flash地址
 }
 
-fn flash_firmware_blocking(session: &mut Session, options: FlashOptions, window: Window) -> AppResult<()> {
-    let path = Path::new(&options.file_path);
-    if !path.exists() {
-        return Err(AppError::FileError("文件不存在".to_string()));
-    }
-
-    // 根据文件扩展名确定格式
-    // 支持的格式: ELF, HEX, BIN, AXF (ARM ELF), OUT
+/// 按扩展名选择固件解析器（烧录与校验共用）。
+/// 支持的格式: ELF, HEX, BIN, AXF (ARM ELF), OUT；BIN 不带地址信息，从 `bin_base` 开始放置。
+fn image_loader(path: &Path, bin_base: u64) -> Box<dyn ImageLoader> {
     let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase());
-    let format: Box<dyn ImageLoader> = match ext.as_deref() {
+    match ext.as_deref() {
         // Intel HEX 格式
         Some("hex") | Some("ihex") => {
             log::info!("检测到 HEX 格式固件");
@@ -119,16 +131,9 @@ fn flash_firmware_blocking(session: &mut Session, options: FlashOptions, window:
         }
         // 纯二进制格式 - 需要指定基地址
         Some("bin") => {
-            log::info!("检测到 BIN 格式固件");
-            let base_address = if options.use_custom_address.unwrap_or(false) {
-                options.custom_flash_address.unwrap_or(0x08000000)
-            } else {
-                // 自动从目标内存映射获取Flash起始地址
-                default_flash_start(session)
-            };
-            log::info!("BIN 基地址: 0x{:08X}", base_address);
+            log::info!("检测到 BIN 格式固件，基地址: 0x{:08X}", bin_base);
             Box::new(BinLoader(BinOptions {
-                base_address: Some(base_address),
+                base_address: Some(bin_base),
                 skip: 0,
             }))
         }
@@ -142,7 +147,58 @@ fn flash_firmware_blocking(session: &mut Session, options: FlashOptions, window:
             log::info!("未知扩展名 {:?}，尝试作为 ELF 格式解析", ext);
             Box::new(ElfLoader(ElfOptions::default()))
         }
+    }
+}
+
+/// nRST 在 DAP_SWJ_Pins 引脚位图中的位置（CMSIS-DAP 定义，probe-rs 各探针驱动通用）
+const NRESET_PIN: u32 = 1 << 7;
+
+/// 按复位方式复位芯片并让它运行（工具栏「复位」与烧录后复位共用）。
+/// - 软件复位：内核的系统复位请求（Cortex-M 为 AIRCR.SYSRESETREQ）
+/// - 硬件复位：通过探针拉低 nRST 引脚，需要调试线连接了芯片的复位脚
+pub(crate) fn reset_session(session: &mut Session, mode: ResetMode) -> AppResult<()> {
+    match mode {
+        ResetMode::Software => {
+            let mut core = session.core(0).map_err(|e| AppError::ProbeError(e.to_string()))?;
+            core.reset()
+                .map_err(|e| AppError::ProbeError(format!("软件复位失败: {e}")))?;
+        }
+        ResetMode::Hardware => {
+            let pin_error = |e: probe_rs::probe::DebugProbeError| {
+                AppError::ProbeError(format!("硬件复位失败（探针无法控制 nRST 引脚）: {e}"))
+            };
+            let interface = session
+                .get_arm_interface()
+                .map_err(|e| AppError::ProbeError(format!("硬件复位目前仅支持 ARM 内核芯片，请改用软件复位: {e}")))?;
+            interface.swj_pins(0, NRESET_PIN, 0).map_err(pin_error)?;
+            std::thread::sleep(Duration::from_millis(20));
+            interface.swj_pins(NRESET_PIN, NRESET_PIN, 0).map_err(pin_error)?;
+            // 等芯片走完复位流程
+            std::thread::sleep(Duration::from_millis(50));
+            // 复位前内核若被调试器停住（如刚执行完烧录算法），复位后可能仍处于停机状态，这里让它运行起来
+            if let Ok(mut core) = session.core(0) {
+                if core.core_halted().unwrap_or(false) {
+                    let _ = core.run();
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn flash_firmware_blocking(session: &mut Session, options: FlashOptions, window: Window) -> AppResult<()> {
+    let path = Path::new(&options.file_path);
+    if !path.exists() {
+        return Err(AppError::FileError("文件不存在".to_string()));
+    }
+
+    // BIN 基地址：启用自定义地址时用用户填写的值，否则自动取目标内存映射中的主 Flash 起始地址
+    let bin_base = if options.use_custom_address.unwrap_or(false) {
+        options.custom_flash_address.unwrap_or(0x08000000)
+    } else {
+        default_flash_start(session)
     };
+    let format = image_loader(path, bin_base);
 
     // 根据擦除模式配置下载选项
     let mut download_options = DownloadOptions::default();
@@ -253,37 +309,19 @@ fn flash_firmware_blocking(session: &mut Session, options: FlashOptions, window:
     })?;
 
     // 烧录完成，发送 95% 进度
-    let _ = window.emit(
-        "flash-progress",
-        FlashProgressEvent {
-            phase: "finishing".to_string(),
-            progress: 0.95,
-            message: "烧录完成，正在收尾...".to_string(),
-        },
-    );
+    emit_progress(&window, "finishing", 0.95, "烧录完成，正在收尾...");
 
     // 重置芯片
     if options.reset_after {
-        let _ = window.emit(
-            "flash-progress",
-            FlashProgressEvent {
-                phase: "reset".to_string(),
-                progress: 0.98,
-                message: "正在复位芯片...".to_string(),
-            },
-        );
-        let mut core = session.core(0).map_err(|e| AppError::FlashError(e.to_string()))?;
-        core.reset().map_err(|e| AppError::FlashError(e.to_string()))?;
+        let label = match options.reset_mode {
+            ResetMode::Software => "软件复位",
+            ResetMode::Hardware => "硬件复位",
+        };
+        emit_progress(&window, "reset", 0.98, format!("正在复位芯片（{label}）..."));
+        reset_session(session, options.reset_mode)?;
     }
 
-    let _ = window.emit(
-        "flash-progress",
-        FlashProgressEvent {
-            phase: "complete".to_string(),
-            progress: 1.0,
-            message: "烧录完成".to_string(),
-        },
-    );
+    emit_progress(&window, "complete", 1.0, "烧录完成");
 
     Ok(())
 }
@@ -311,36 +349,15 @@ pub async fn erase_chip(
 fn erase_chip_blocking(session: &mut Session, erase_mode: EraseMode, window: Window) -> AppResult<()> {
     match erase_mode {
         EraseMode::ChipErase => {
-            let _ = window.emit(
-                "flash-progress",
-                FlashProgressEvent {
-                    phase: "erase".to_string(),
-                    progress: 0.0,
-                    message: "开始全片擦除".to_string(),
-                },
-            );
+            emit_progress(&window, "erase", 0.0, "开始全片擦除");
 
             let mut progress = FlashProgress::new(|_| {});
             erase_all(session, &mut progress, false).map_err(|e| AppError::FlashError(e.to_string()))?;
 
-            let _ = window.emit(
-                "flash-progress",
-                FlashProgressEvent {
-                    phase: "complete".to_string(),
-                    progress: 1.0,
-                    message: "全片擦除完成".to_string(),
-                },
-            );
+            emit_progress(&window, "complete", 1.0, "全片擦除完成");
         }
         EraseMode::SectorErase => {
-            let _ = window.emit(
-                "flash-progress",
-                FlashProgressEvent {
-                    phase: "erase".to_string(),
-                    progress: 0.0,
-                    message: "开始扇区擦除".to_string(),
-                },
-            );
+            emit_progress(&window, "erase", 0.0, "开始扇区擦除");
 
             // 按扇区逐个擦除所有主 NVM 区域（别名区域指向同一块 Flash，跳过）。
             // 直接调用 probe-rs 的范围擦除，不再“写满 0xFF”：省掉一遍编程，也不用按区域大小分配内存。
@@ -360,14 +377,7 @@ fn erase_chip_blocking(session: &mut Session, erase_mode: EraseMode, window: Win
                     .map_err(|e| AppError::FlashError(e.to_string()))?;
             }
 
-            let _ = window.emit(
-                "flash-progress",
-                FlashProgressEvent {
-                    phase: "complete".to_string(),
-                    progress: 1.0,
-                    message: "扇区擦除完成".to_string(),
-                },
-            );
+            emit_progress(&window, "complete", 1.0, "扇区擦除完成");
         }
     }
 
@@ -406,35 +416,15 @@ pub async fn erase_sector(options: EraseSectorOptions, state: State<'_, AppState
 }
 
 #[tauri::command]
+/// 校验 Flash 内容是否与固件一致，支持与烧录相同的全部格式（BIN / HEX / ELF / AXF / OUT）。
 /// `address` 为 BIN 固件的起始地址，应与烧录时使用的地址一致；
-/// 不传时使用主 Flash 起始地址（与烧录时未启用自定义地址的行为相同）。
+/// 不传时使用主 Flash 起始地址（与烧录时未启用自定义地址的行为相同）。HEX / ELF 自带地址，忽略该参数。
 pub async fn verify_firmware(
     file_path: String,
     address: Option<u64>,
     state: State<'_, AppState>,
     window: Window,
 ) -> AppResult<bool> {
-    // 检测文件格式，只支持 BIN 格式
-    {
-        use std::io::Read as IoRead;
-        let mut header = [0u8; 4];
-        let mut f = std::fs::File::open(&file_path).map_err(|e| AppError::FileError(e.to_string()))?;
-        let _ = f.read(&mut header);
-
-        // ELF 魔数: 0x7F 'E' 'L' 'F'
-        if header == [0x7F, 0x45, 0x4C, 0x46] {
-            return Err(AppError::InvalidInput(
-                "检测到 ELF 格式文件，verify_firmware 仅支持 BIN 格式，请先将固件转换为 BIN 文件。".to_string(),
-            ));
-        }
-        // Intel HEX 以 ':' 开头
-        if header[0] == b':' {
-            return Err(AppError::InvalidInput(
-                "检测到 Intel HEX 格式文件，verify_firmware 仅支持 BIN 格式，请先将固件转换为 BIN 文件。".to_string(),
-            ));
-        }
-    }
-
     let _rtt = state.rtt_state.suspend(false);
     with_session(&state.session, move |session| {
         verify_firmware_blocking(session, file_path, address, window)
@@ -453,20 +443,33 @@ fn verify_firmware_blocking(
         return Err(AppError::FileError("文件不存在".to_string()));
     }
 
-    let _ = window.emit(
-        "flash-progress",
-        FlashProgressEvent {
-            phase: "verify".to_string(),
-            progress: 0.0,
-            message: "开始校验".to_string(),
-        },
-    );
+    emit_progress(&window, "verify", 0.0, "开始校验");
 
-    // 读取文件
-    let file_data = std::fs::read(path)?;
-    let total_size = file_data.len();
+    // 用与烧录相同的解析器把固件拆成「地址 + 数据」段，再逐段与芯片内容比对
+    let bin_base = address.unwrap_or_else(|| default_flash_start(session));
+    let loader = build_loader(session, path, image_loader(path, bin_base), None)
+        .map_err(|e| AppError::FlashError(format!("解析固件失败: {:#}", e)))?;
 
-    let flash_start = address.unwrap_or_else(|| default_flash_start(session));
+    // 只比对落在 Flash 里的段：ELF 中加载到 RAM 的段在程序运行后内容会变化，比对没有意义
+    let nvm_ranges: Vec<_> = session
+        .target()
+        .memory_map
+        .iter()
+        .filter_map(|region| match region {
+            probe_rs::config::MemoryRegion::Nvm(r) => Some(r.range.clone()),
+            _ => None,
+        })
+        .collect();
+    let segments: Vec<(u64, &[u8])> = loader
+        .data()
+        .filter(|(addr, _)| nvm_ranges.iter().any(|range| range.contains(addr)))
+        .collect();
+    let total_size: usize = segments.iter().map(|(_, data)| data.len()).sum();
+    if total_size == 0 {
+        return Err(AppError::InvalidInput(
+            "固件中没有位于 Flash 地址范围内的数据，无法校验（BIN 固件请检查起始地址）".to_string(),
+        ));
+    }
 
     let mut core = session.core(0).map_err(|e| AppError::FlashError(e.to_string()))?;
 
@@ -475,50 +478,50 @@ fn verify_firmware_blocking(
     let mut verified: usize = 0;
     let mut flash_buffer = vec![0u8; CHUNK_SIZE];
 
-    while verified < total_size {
-        let chunk_len = std::cmp::min(CHUNK_SIZE, total_size - verified);
-        let current_addr = flash_start + verified as u64;
+    for (segment_addr, segment) in &segments {
+        for (index, expected) in segment.chunks(CHUNK_SIZE).enumerate() {
+            let current_addr = segment_addr + (index * CHUNK_SIZE) as u64;
+            let actual = &mut flash_buffer[..expected.len()];
 
-        // 读取当前块
-        core.read(current_addr, &mut flash_buffer[..chunk_len])
-            .map_err(|e| AppError::FlashError(e.to_string()))?;
+            core.read(current_addr, actual)
+                .map_err(|e| AppError::FlashError(e.to_string()))?;
 
-        // 比较当前块
-        if flash_buffer[..chunk_len] != file_data[verified..verified + chunk_len] {
-            let _ = window.emit(
-                "flash-progress",
-                FlashProgressEvent {
-                    phase: "error".to_string(),
-                    progress: verified as f32 / total_size as f32,
-                    message: format!("校验失败：地址 0x{:08X} 处数据不匹配", current_addr),
-                },
-            );
-            return Ok(false);
-        }
+            if let Some(offset) = actual.iter().zip(expected.iter()).position(|(a, b)| a != b) {
+                emit_progress(
+                    &window,
+                    "error",
+                    verified as f32 / total_size as f32,
+                    format!(
+                        "校验失败：地址 0x{:08X} 处数据不匹配（芯片 0x{:02X}，固件 0x{:02X}）",
+                        current_addr + offset as u64,
+                        actual[offset],
+                        expected[offset]
+                    ),
+                );
+                return Ok(false);
+            }
 
-        verified += chunk_len;
+            let before = verified;
+            verified += expected.len();
 
-        // 更新进度（每 64KB 更新一次，减少开销）
-        if verified % (64 * 1024) < CHUNK_SIZE || verified >= total_size {
-            let progress = verified as f32 / total_size as f32;
-            let _ = window.emit(
-                "flash-progress",
-                FlashProgressEvent {
-                    phase: "verify".to_string(),
+            // 更新进度（每跨过 64KB 更新一次，减少开销）
+            if before / (64 * 1024) != verified / (64 * 1024) || verified >= total_size {
+                let progress = verified as f32 / total_size as f32;
+                emit_progress(
+                    &window,
+                    "verify",
                     progress,
-                    message: format!("已校验 {}/{} 字节 ({:.1}%)", verified, total_size, progress * 100.0),
-                },
-            );
+                    format!("已校验 {}/{} 字节 ({:.1}%)", verified, total_size, progress * 100.0),
+                );
+            }
         }
     }
 
-    let _ = window.emit(
-        "flash-progress",
-        FlashProgressEvent {
-            phase: "complete".to_string(),
-            progress: 1.0,
-            message: format!("校验通过 ({} 字节)", total_size),
-        },
+    emit_progress(
+        &window,
+        "complete",
+        1.0,
+        format!("校验通过（{} 段，共 {} 字节）", segments.len(), total_size),
     );
 
     Ok(true)
@@ -551,6 +554,82 @@ pub async fn read_flash(options: ReadFlashOptions, state: State<'_, AppState>) -
     .await?;
 
     Ok(Response::new(data))
+}
+
+// ==================== 目标控制（工具栏 复位 / 停止 / 运行 / 解锁） ====================
+
+/// 复位芯片；`reset_mode` 省略时使用软件复位
+#[tauri::command]
+pub async fn reset_target(reset_mode: Option<ResetMode>, state: State<'_, AppState>) -> AppResult<()> {
+    // 复位后固件会重新初始化 RTT 控制块，结束后让 RTT 重新查找
+    let _rtt = state.rtt_state.suspend(true);
+    with_session(&state.session, move |session| {
+        reset_session(session, reset_mode.unwrap_or_default())
+    })
+    .await
+}
+
+/// 停止（halt）内核，返回停下时的 PC
+#[tauri::command]
+pub async fn halt_target(state: State<'_, AppState>) -> AppResult<u64> {
+    with_session(&state.session, |session| {
+        let mut core = session.core(0).map_err(|e| AppError::ProbeError(e.to_string()))?;
+        let info = core
+            .halt(Duration::from_millis(500))
+            .map_err(|e| AppError::ProbeError(format!("停止内核失败: {e}")))?;
+        Ok(info.pc)
+    })
+    .await
+}
+
+/// 让内核继续运行
+#[tauri::command]
+pub async fn resume_target(state: State<'_, AppState>) -> AppResult<()> {
+    with_session(&state.session, |session| {
+        let mut core = session.core(0).map_err(|e| AppError::ProbeError(e.to_string()))?;
+        core.run()
+            .map_err(|e| AppError::ProbeError(format!("运行内核失败: {e}")))
+    })
+    .await
+}
+
+/// 解锁芯片：带「允许全片擦除」权限重新建立烧录连接，再整片擦除。
+///
+/// - 芯片描述带解锁序列的（如 nRF 的 APPROTECT）在连接阶段即由该序列擦除并解除保护，
+///   所以芯片被锁、普通连接失败时也能用；
+/// - 有专用擦除序列的芯片用该序列，其余芯片用烧录算法整片擦除。
+///
+/// 完成后保持连接并返回目标信息，前端按「已连接」处理。
+#[tauri::command]
+pub async fn unlock_chip(options: ConnectOptions, state: State<'_, AppState>, window: Window) -> AppResult<TargetInfo> {
+    state.rtt_state.stop_if_sharing_main();
+    let slot = Arc::clone(&state.session);
+    let info_slot = Arc::clone(&state.connection_info);
+    blocking(move || {
+        // 关闭旧连接：解锁必须用带擦除权限的新连接
+        *info_slot.lock() = None;
+        drop(slot.lock().take());
+
+        emit_progress(&window, "erase", 0.1, "正在以解锁模式连接芯片...");
+        let mut opened = open_session_with_permissions(&options, Permissions::new().allow_erase_all())?;
+
+        emit_progress(&window, "erase", 0.4, "正在全片擦除...");
+        let session = &mut opened.session;
+        if session.has_sequence_erase_all() {
+            session
+                .sequence_erase_all()
+                .map_err(|e| AppError::FlashError(format!("芯片擦除序列执行失败: {e}")))?;
+        } else {
+            let mut progress = FlashProgress::new(|_| {});
+            erase_all(session, &mut progress, false).map_err(|e| AppError::FlashError(e.to_string()))?;
+        }
+        emit_progress(&window, "complete", 1.0, "解锁完成，Flash 已全部擦除");
+
+        *slot.lock() = Some(opened.session);
+        *info_slot.lock() = Some(opened.connection_info);
+        Ok(opened.target_info)
+    })
+    .await
 }
 
 /// 固件文件信息

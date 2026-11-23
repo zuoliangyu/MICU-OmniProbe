@@ -28,6 +28,12 @@ export interface TriggerStatus {
    * 用时间戳而非下标标记触发点，因为滚动缓冲区会从头部裁剪，下标会失效。
    */
   triggeredAt: number | null;
+  /**
+   * 最近一批样本里，完成捕获的那个样本之后还跟着多少个样本。
+   * 一批数据可能在捕获完成后还有剩余（单次模式直接丢弃不处理，正常模式继续等下一次），
+   * 切触发窗口时要从缓冲区末尾退回这么多个，窗口才正好结束在最后一个后置样本上。
+   */
+  trailingSamples: number;
 }
 
 /**
@@ -72,6 +78,8 @@ export class TriggerDetector {
   private previousValue: number | undefined;
   /** 触发那一刻样本的时间戳 */
   private triggeredAt: number | null = null;
+  /** 最近一次完成捕获时，本批中排在完成样本之后的样本数 */
+  private trailingSamples = 0;
 
   getStatus(): TriggerStatus {
     return {
@@ -79,6 +87,7 @@ export class TriggerDetector {
       remainingPostSamples: this.remainingPost,
       captureCount: this.captureCount,
       triggeredAt: this.triggeredAt,
+      trailingSamples: this.trailingSamples,
     };
   }
 
@@ -87,6 +96,7 @@ export class TriggerDetector {
     this.state = "armed";
     this.remainingPost = 0;
     this.previousValue = undefined;
+    this.trailingSamples = 0;
   }
 
   /** 完全复位，含捕获计数。 */
@@ -96,6 +106,7 @@ export class TriggerDetector {
     this.captureCount = 0;
     this.previousValue = undefined;
     this.triggeredAt = null;
+    this.trailingSamples = 0;
   }
 
   /**
@@ -116,8 +127,10 @@ export class TriggerDetector {
 
     let completed = false;
 
-    for (const sample of samples) {
+    for (let index = 0; index < samples.length; index += 1) {
+      const sample = samples[index];
       const value = sample.values[config.channelKey];
+      let finished = false;
 
       if (this.state === "armed") {
         if (value !== undefined && matchesTrigger(this.previousValue, value, config.condition, config.level)) {
@@ -125,15 +138,16 @@ export class TriggerDetector {
           this.triggeredAt = sample.timestamp;
           // 触发点本身算作已采到的第一个后置样本
           this.remainingPost = Math.max(0, config.postSamples - 1);
-          if (this.remainingPost === 0) {
-            completed = this.complete(config);
-          }
+          finished = this.remainingPost === 0;
         }
       } else if (this.state === "capturing") {
         this.remainingPost -= 1;
-        if (this.remainingPost <= 0) {
-          completed = this.complete(config);
-        }
+        finished = this.remainingPost <= 0;
+      }
+
+      if (finished) {
+        completed = this.complete(config);
+        this.trailingSamples = samples.length - 1 - index;
       }
 
       if (value !== undefined && Number.isFinite(value)) this.previousValue = value;
@@ -165,8 +179,8 @@ export class TriggerDetector {
 /**
  * 捕获完成后从滚动缓冲区里切出触发窗口。
  *
- * 缓冲区末尾就是最新样本，也就是本次捕获的最后一个后置样本，
- * 因此窗口是末尾往前 preSamples + postSamples 个。
+ * 传入的缓冲区末尾应是本次捕获的最后一个后置样本（stepTriggerCapture 会先退回
+ * 同批中排在捕获终点之后的样本），因此窗口是末尾往前 preSamples + postSamples 个。
  * 缓冲区不够长时能取多少取多少，不足不是错误。
  */
 export function sliceTriggerWindow(buffer: TelemetrySample[], config: TriggerConfig): TelemetrySample[] {
@@ -201,10 +215,15 @@ export function resolveTriggerCapture(
   };
 }
 
-/** 供 store 直接展开进 setState 的补丁；无事发生时为 null。 */
-export interface TriggerStorePatch {
+/** 一次捕获冻结下来的画面：原始与滤波后两份，按同一窗口切出、逐点对齐。 */
+export interface TriggerSnapshot {
   chartData: TelemetrySample[];
   processedChartData: TelemetrySample[];
+}
+
+/** 供 store 直接展开进 setState 的补丁；无事发生时为 null。 */
+export interface TriggerStorePatch {
+  triggerCapture: TriggerSnapshot;
   chartPaused: boolean;
   triggeredAt: number | null;
 }
@@ -216,9 +235,10 @@ export interface TriggerStorePatch {
  * 触发判断用的是**滤波后**的数值：用户是对着图上显示的波形设触发电平的，
  * 若拿原始值判断，开了滤波之后就会在"看起来还没越过电平"的时刻触发。
  *
- * 原始与滤波后两个缓冲区必须按同样的窗口裁剪。只裁其中一个会让两者错位，
- * 而图表在滤波开启时显示的是滤波后那份——只裁 chartData 的话窗口模式
- * 对开了滤波的用户根本不生效。
+ * 捕获结果单独放进 triggerCapture 快照，滚动缓冲区本身不裁剪：
+ * 冻结画面直接显示快照（就是触发窗口本身，而不是冻结前的上一帧），
+ * 后台缓冲继续完整滚动，恢复跟随后历史不丢，正常模式下一次捕获也有足够的预触发数据。
+ * 原始与滤波后两份快照必须按同样的窗口裁剪，否则开了滤波时窗口模式不生效。
  *
  * @param rawBuffer 追加新样本之后的原始缓冲区
  * @param processedBuffer 与 rawBuffer 等长的滤波后缓冲区
@@ -236,13 +256,15 @@ export function stepTriggerCapture(
   const incoming = incomingCount > 0 ? processedBuffer.slice(-incomingCount) : [];
   if (!detector.push(incoming, config)) return null;
 
-  const triggeredAt = detector.getStatus().triggeredAt;
-  const raw = resolveTriggerCapture(rawBuffer, config, triggeredAt);
-  const processed = resolveTriggerCapture(processedBuffer, config, triggeredAt);
+  const { triggeredAt, trailingSamples } = detector.getStatus();
+  // 本批中排在捕获终点之后的样本不属于这次捕获，先从末尾退回到终点再切窗口
+  const untilCaptureEnd = (buffer: TelemetrySample[]) =>
+    trailingSamples > 0 ? buffer.slice(0, Math.max(0, buffer.length - trailingSamples)) : buffer;
+  const raw = resolveTriggerCapture(untilCaptureEnd(rawBuffer), config, triggeredAt);
+  const processed = resolveTriggerCapture(untilCaptureEnd(processedBuffer), config, triggeredAt);
 
   return {
-    chartData: raw.data,
-    processedChartData: processed.data,
+    triggerCapture: { chartData: raw.data, processedChartData: processed.data },
     // 捕获完成即冻结，复用图表既有的暂停机制
     chartPaused: true,
     triggeredAt,

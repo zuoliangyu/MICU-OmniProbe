@@ -3,7 +3,7 @@ import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDebugStore } from "@/stores/debugStore";
-import { debugReadMemory } from "@/lib/debug";
+import { debugReadMemory, formatHexBytes, formatLeScalar } from "@/lib/debug";
 
 const STORAGE_KEY = "debug_watch_expressions";
 const DEFAULT_SIZE = 4;
@@ -50,19 +50,33 @@ function parseHex(input: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-function formatBytesHex(bytes: number[]): string {
-  return bytes.map((b) => b.toString(16).toUpperCase().padStart(2, "0")).join(" ");
-}
-
-function bytesAsU32Le(bytes: number[]): string | null {
-  if (bytes.length < 4) return null;
-  const v = (bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (bytes[3] << 24)) >>> 0;
-  return `0x${v.toString(16).toUpperCase().padStart(8, "0")}`;
+/** 观察值：1/2/4/8 字节按整数显示；其他长度列出全部字节，超过 4 字节时另给出前 4 字节的 32 位值 */
+function WatchValueView({ bytes }: { bytes: number[] }) {
+  const scalar = formatLeScalar(bytes);
+  if (scalar) {
+    return (
+      <div>
+        {scalar.hex}
+        <span className="ml-2 text-[11px] text-muted-foreground">
+          = {scalar.unsigned}
+          {scalar.signed !== scalar.unsigned && ` / ${scalar.signed}`}
+        </span>
+      </div>
+    );
+  }
+  const head = bytes.length > 4 ? formatLeScalar(bytes.slice(0, 4)) : null;
+  return (
+    <div>
+      {head && <div>{head.hex}</div>}
+      <div className="text-[11px] text-muted-foreground break-all">{formatHexBytes(bytes)}</div>
+    </div>
+  );
 }
 
 export function WatchPanel() {
   const symbols = useDebugStore((s) => s.symbols);
   const state = useDebugStore((s) => s.state);
+  const haltSeq = useDebugStore((s) => s.haltSeq);
 
   const [expressions, setExpressions] = useState<WatchExpression[]>(() => loadExpressions());
   const [values, setValues] = useState<Map<string, WatchValue>>(new Map());
@@ -88,6 +102,7 @@ export function WatchPanel() {
 
       let body = trimmed;
       let size = DEFAULT_SIZE;
+      let explicitSize = false;
       const colon = trimmed.lastIndexOf(":");
       if (colon > 0) {
         const sizeStr = trimmed.slice(colon + 1).trim();
@@ -95,6 +110,7 @@ export function WatchPanel() {
         if (Number.isFinite(n) && n > 0) {
           size = Math.min(n, MAX_SIZE);
           body = trimmed.slice(0, colon).trim();
+          explicitSize = true;
         }
       }
 
@@ -109,7 +125,7 @@ export function WatchPanel() {
       const sym = symbols.find((s) => s.name === body);
       if (!sym) return { error: `符号未找到: ${body}` };
       // 若用户没显式给 size，且符号自身 size 非零，用其 size（封顶 MAX_SIZE）
-      const finalSize = colon > 0 ? size : Math.min(sym.size > 0 ? Number(sym.size) : DEFAULT_SIZE, MAX_SIZE);
+      const finalSize = explicitSize ? size : Math.min(sym.size > 0 ? Number(sym.size) : DEFAULT_SIZE, MAX_SIZE);
       return { address: sym.address, size: finalSize };
     },
     [symbols]
@@ -163,14 +179,14 @@ export function WatchPanel() {
     }
   }, [state, expressions, fetchOne]);
 
-  // halt 时自动刷新；run/detached 时清缓存
+  // 每次停下（含单步）自动刷新；run/detached 时清缓存
   useEffect(() => {
     if (state === "halted") {
       refreshAll();
     } else if (state === "running" || state === "detached") {
       setValues(new Map());
     }
-  }, [state, refreshAll]);
+  }, [state, haltSeq, refreshAll]);
 
   const addExpression = () => {
     const expr = draft.trim();
@@ -250,7 +266,6 @@ export function WatchPanel() {
               {expressions.map((item) => {
                 const value = values.get(item.id);
                 const error = errors.get(item.id);
-                const u32 = value ? bytesAsU32Le(value.bytes) : null;
                 return (
                   <tr key={item.id} className="border-b border-border/30 last:border-b-0">
                     <td className="w-32 px-2 py-1 font-mono" title={item.expr}>
@@ -262,14 +277,7 @@ export function WatchPanel() {
                           {error.length > 40 ? error.slice(0, 40) + "..." : error}
                         </span>
                       ) : value ? (
-                        <div>
-                          {u32 && <div>{u32}</div>}
-                          {value.bytes.length > 4 && (
-                            <div className="text-[11px] text-muted-foreground break-all">
-                              {formatBytesHex(value.bytes)}
-                            </div>
-                          )}
-                        </div>
+                        <WatchValueView bytes={value.bytes} />
                       ) : (
                         <span className="italic text-muted-foreground">
                           {state === "halted" ? "读取中..." : "halt 后读"}

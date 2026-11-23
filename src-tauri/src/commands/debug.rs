@@ -3,13 +3,16 @@
 //! 调试会话使用独立的 `debug_session`（与烧录主连接和 RTT 连接互不影响）。
 //! 提供 attach/detach、执行控制、内存与寄存器读取、断点和源码定位。
 
+use crate::commands::flash::reset_session;
 use crate::commands::probe::{open_session, ConnectOptions, OpenedSession};
 use crate::commands::{blocking, with_session};
 use crate::debug_symbols::{DebugSymbols, ElfSymbol};
 use crate::error::{AppError, AppResult};
-use crate::state::{AppState, ConnectionInfo, DebugBreakpointEntry};
+use crate::state::{AppState, ConnectionInfo, DebugBreakpointEntry, ResetMode};
+use parking_lot::Mutex;
 use probe_rs::{Core, MemoryInterface};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::ipc::Response;
@@ -35,6 +38,8 @@ pub struct DebugCoreState {
     /// "halted" | "running"
     pub state: String,
     pub pc: Option<u64>,
+    /// 这次停下是否停在已设置的断点上（命中次数已 +1）
+    pub breakpoint_hit: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -129,7 +134,27 @@ fn halted_at(pc: u64) -> DebugCoreState {
     DebugCoreState {
         state: "halted".into(),
         pc: Some(pc),
+        breakpoint_hit: false,
     }
+}
+
+fn running_state() -> DebugCoreState {
+    DebugCoreState {
+        state: "running".into(),
+        pc: None,
+        breakpoint_hit: false,
+    }
+}
+
+/// 目标自行停在 `pc` 时调用：PC 正好是已设置的断点就把它的命中次数 +1，返回是否命中
+fn record_breakpoint_hit(breakpoints: &Mutex<Vec<DebugBreakpointEntry>>, pc: u64) -> bool {
+    let mut guard = breakpoints.lock();
+    let Some(bp) = guard.iter_mut().find(|b| b.address == pc) else {
+        return false;
+    };
+    bp.hit_count += 1;
+    log::info!("命中断点 #{} @ 0x{:08X}（第 {} 次）", bp.id, pc, bp.hit_count);
+    true
 }
 
 /// 在 `address` 下临时硬断点并运行，直到命中或超时后清除断点。
@@ -162,11 +187,13 @@ pub async fn debug_attach(options: DebugAttachOptions, state: State<'_, AppState
     let slot = Arc::clone(&state.debug_session);
     let info_slot = Arc::clone(&state.debug_connection_info);
     let breakpoints = Arc::clone(&state.debug_breakpoints);
+    let resumed = Arc::clone(&state.debug_resumed);
     let (info, core_state) = blocking(move || {
         // 关闭已有调试连接；硬件断点随旧连接失效，记录一并清空
         *info_slot.lock() = None;
         drop(slot.lock().take());
         breakpoints.lock().clear();
+        resumed.store(false, Ordering::SeqCst);
 
         let OpenedSession {
             mut session,
@@ -183,10 +210,8 @@ pub async fn debug_attach(options: DebugAttachOptions, state: State<'_, AppState
                 .map_err(|e| AppError::DebugError(format!("halt 失败: {}", e)))?;
             halted_at(info.pc)
         } else {
-            DebugCoreState {
-                state: "running".to_string(),
-                pc: None,
-            }
+            resumed.store(true, Ordering::SeqCst);
+            running_state()
         };
 
         *slot.lock() = Some(session);
@@ -209,6 +234,7 @@ pub async fn debug_detach(state: State<'_, AppState>) -> AppResult<()> {
     let slot = Arc::clone(&state.debug_session);
     let info_slot = Arc::clone(&state.debug_connection_info);
     let breakpoints = Arc::clone(&state.debug_breakpoints);
+    let resumed = Arc::clone(&state.debug_resumed);
     blocking(move || {
         let previous = slot.lock().take();
         // detach 前让芯片继续跑，避免离开后还停在 halt 状态
@@ -220,6 +246,7 @@ pub async fn debug_detach(state: State<'_, AppState>) -> AppResult<()> {
         *info_slot.lock() = None;
         // 断点只存在于这次连接的硬件里，断开后不能再展示
         breakpoints.lock().clear();
+        resumed.store(false, Ordering::SeqCst);
         Ok(())
     })
     .await?;
@@ -231,15 +258,22 @@ pub async fn debug_detach(state: State<'_, AppState>) -> AppResult<()> {
 pub async fn debug_get_status(state: State<'_, AppState>) -> AppResult<DebugStatus> {
     let info = state.debug_connection_info.lock().clone();
     let slot = Arc::clone(&state.debug_session);
+    let breakpoints = Arc::clone(&state.debug_breakpoints);
+    let resumed = Arc::clone(&state.debug_resumed);
     let (attached, core) = blocking(move || {
         let mut guard = slot.lock();
         let core_state = guard.as_mut().and_then(|session| {
             let mut core = session.core(0).ok()?;
             let halted = core.core_halted().unwrap_or(false);
             let pc = if halted { read_pc(&mut core).ok() } else { None };
+            // 运行/复位后第一次发现停下才按 PC 记命中，之后重复查询不再累加
+            let breakpoint_hit = halted
+                && resumed.swap(false, Ordering::SeqCst)
+                && pc.is_some_and(|pc| record_breakpoint_hit(&breakpoints, pc));
             Some(DebugCoreState {
                 state: if halted { "halted".into() } else { "running".into() },
                 pc,
+                breakpoint_hit,
             })
         });
         Ok((guard.is_some(), core_state))
@@ -255,23 +289,25 @@ pub async fn debug_get_status(state: State<'_, AppState>) -> AppResult<DebugStat
 
 #[tauri::command]
 pub async fn debug_run(state: State<'_, AppState>) -> AppResult<DebugCoreState> {
-    with_core(&state, |core| {
+    let resumed = Arc::clone(&state.debug_resumed);
+    with_core(&state, move |core| {
         core.run()
             .map_err(|e| AppError::DebugError(format!("run 失败: {}", e)))?;
-        Ok(DebugCoreState {
-            state: "running".into(),
-            pc: None,
-        })
+        resumed.store(true, Ordering::SeqCst);
+        Ok(running_state())
     })
     .await
 }
 
 #[tauri::command]
 pub async fn debug_halt(state: State<'_, AppState>) -> AppResult<DebugCoreState> {
-    with_core(&state, |core| {
+    let resumed = Arc::clone(&state.debug_resumed);
+    with_core(&state, move |core| {
         let info = core
             .halt(HALT_TIMEOUT)
             .map_err(|e| AppError::DebugError(format!("halt 失败: {}", e)))?;
+        // 手动暂停不算断点命中
+        resumed.store(false, Ordering::SeqCst);
         Ok(halted_at(info.pc))
     })
     .await
@@ -298,6 +334,7 @@ pub async fn debug_step_over(state: State<'_, AppState>) -> AppResult<DebugCoreS
     const CALL_RETURN_TIMEOUT: Duration = Duration::from_secs(5);
 
     let symbols = Arc::clone(&state.debug_symbols);
+    let breakpoints = Arc::clone(&state.debug_breakpoints);
     with_core(&state, move |core| {
         let starting_pc = read_pc(core)?;
 
@@ -312,6 +349,7 @@ pub async fn debug_step_over(state: State<'_, AppState>) -> AppResult<DebugCoreS
         let start = syms.resolve(starting_pc);
 
         let mut last_pc = starting_pc;
+        let mut breakpoint_hit = false;
         for _ in 0..MAX_STEPS {
             let info = core
                 .step()
@@ -326,7 +364,8 @@ pub async fn debug_step_over(state: State<'_, AppState>) -> AppResult<DebugCoreS
                     Some(addr) if syms.resolve(addr).function == start.function => {
                         last_pc = run_to_address(core, addr, CALL_RETURN_TIMEOUT)?;
                         if last_pc != addr {
-                            // 超时被强制暂停，停在哪里就报告哪里
+                            // 被调函数里的断点拦下，或超时被强制暂停：停在哪里就报告哪里
+                            breakpoint_hit = record_breakpoint_hit(&breakpoints, last_pc);
                             break;
                         }
                         loc = syms.resolve(last_pc);
@@ -342,16 +381,20 @@ pub async fn debug_step_over(state: State<'_, AppState>) -> AppResult<DebugCoreS
             }
         }
 
-        Ok(halted_at(last_pc))
+        Ok(DebugCoreState {
+            breakpoint_hit,
+            ..halted_at(last_pc)
+        })
     })
     .await
 }
 
 /// step out：在 LR 处下临时硬断点，run，等待命中后清除断点。
-/// 5 秒超时，超时后强制暂停并返回实际位置。
+/// 5 秒超时，超时后强制暂停并返回实际位置；途中被其他断点拦下时计入该断点的命中。
 #[tauri::command]
 pub async fn debug_step_out(state: State<'_, AppState>) -> AppResult<DebugCoreState> {
-    with_core(&state, |core| {
+    let breakpoints = Arc::clone(&state.debug_breakpoints);
+    with_core(&state, move |core| {
         let lr =
             read_lr(core).ok_or_else(|| AppError::DebugError("当前架构未暴露 LR 寄存器，无法 step out".to_string()))?;
         // ARM Thumb: LR 最低位为 1 表示 thumb，硬断点地址必须清零最低位。
@@ -361,21 +404,25 @@ pub async fn debug_step_out(state: State<'_, AppState>) -> AppResult<DebugCoreSt
                 "当前处于异常处理函数中（LR 为 EXC_RETURN），暂不支持 step out".to_string(),
             ));
         }
-        let pc = run_to_address(core, lr & !1u64, Duration::from_secs(5))?;
-        Ok(halted_at(pc))
+        let return_addr = lr & !1u64;
+        let pc = run_to_address(core, return_addr, Duration::from_secs(5))?;
+        Ok(DebugCoreState {
+            breakpoint_hit: pc != return_addr && record_breakpoint_hit(&breakpoints, pc),
+            ..halted_at(pc)
+        })
     })
     .await
 }
 
 #[tauri::command]
-pub async fn debug_reset(state: State<'_, AppState>) -> AppResult<DebugCoreState> {
-    with_core(&state, |core| {
-        core.reset()
-            .map_err(|e| AppError::DebugError(format!("reset 失败: {}", e)))?;
-        Ok(DebugCoreState {
-            state: "running".into(),
-            pc: None,
-        })
+pub async fn debug_reset(reset_mode: Option<ResetMode>, state: State<'_, AppState>) -> AppResult<DebugCoreState> {
+    let resumed = Arc::clone(&state.debug_resumed);
+    // 与烧录工作台共用复位实现，按配置检查器「复位方式」执行；两种方式复位后目标都会运行
+    with_session(&state.debug_session, move |session| {
+        reset_session(session, reset_mode.unwrap_or_default())?;
+        // 复位后目标重新运行，启动途中停在断点上同样计入命中
+        resumed.store(true, Ordering::SeqCst);
+        Ok(running_state())
     })
     .await
 }
@@ -533,7 +580,8 @@ pub async fn debug_set_breakpoint(
     options: DebugBreakpointOptions,
     state: State<'_, AppState>,
 ) -> AppResult<DebugBreakpointEntry> {
-    register_breakpoint(&state, options.address, None).await
+    // 指令地址至少 2 字节对齐；直接填 Thumb 函数符号地址（最低位为 1）时自动清零
+    register_breakpoint(&state, options.address & !1u64, None).await
 }
 
 #[tauri::command]

@@ -24,6 +24,7 @@ function BleChartViewer() {
     chartConfig,
     chartPaused,
     triggeredAt,
+    triggerCapture,
     parseSuccessCount,
     parseFailCount,
     setChartPaused,
@@ -37,6 +38,7 @@ function BleChartViewer() {
       chartConfig: state.chartConfig,
       chartPaused: state.chartPaused,
       triggeredAt: state.triggeredAt,
+      triggerCapture: state.triggerCapture,
       parseSuccessCount: state.parseSuccessCount,
       parseFailCount: state.parseFailCount,
       setChartPaused: state.setChartPaused,
@@ -47,6 +49,7 @@ function BleChartViewer() {
 
   return (
     <ChartViewer
+      source="bluetooth"
       chartData={chartData}
       processedData={processedChartData}
       filterActive={filterActive}
@@ -58,6 +61,7 @@ function BleChartViewer() {
       clearChartData={clearChartData}
       setChartConfig={setChartConfig}
       triggeredAt={triggeredAt}
+      triggerCapture={triggerCapture}
     />
   );
 }

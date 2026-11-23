@@ -13,6 +13,7 @@ function formatHex(value: number, width = 8): string {
 
 export function RegistersPanel() {
   const state = useDebugStore((s) => s.state);
+  const haltSeq = useDebugStore((s) => s.haltSeq);
   const addLog = useLogStore((s) => s.addLog);
   const [registers, setRegisters] = useState<DebugRegisterValue[]>([]);
   const [loading, setLoading] = useState(false);
@@ -32,7 +33,7 @@ export function RegistersPanel() {
     }
   }, [state, addLog]);
 
-  // halt 后自动拉一次；run 后清空（避免显示陈旧值）
+  // 每次停下（含单步）自动拉一次；run 后清空（避免显示陈旧值）
   useEffect(() => {
     if (state === "halted") {
       refresh();
@@ -43,7 +44,7 @@ export function RegistersPanel() {
       setRegisters([]);
       setStaleAt(null);
     }
-  }, [state, refresh]);
+  }, [state, haltSeq, refresh]);
 
   const canRefresh = state === "halted" && !loading;
 

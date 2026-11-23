@@ -339,6 +339,15 @@ pub(crate) struct OpenedSession {
 /// 打开探针并 attach 到目标芯片（烧录、RTT、调试三种独立连接共用）。
 /// 同步阻塞，调用方需放在阻塞线程里执行。
 pub(crate) fn open_session(options: &ConnectOptions) -> AppResult<OpenedSession> {
+    open_session_with_permissions(options, Permissions::default())
+}
+
+/// 同 [`open_session`]，可额外授予权限（如解锁芯片需要的 `allow_erase_all`）。
+/// 带擦除权限 attach 时，芯片自带的解锁序列（如 nRF 的 APPROTECT）会在连接阶段直接全片擦除。
+pub(crate) fn open_session_with_permissions(
+    options: &ConnectOptions,
+    permissions: Permissions,
+) -> AppResult<OpenedSession> {
     log::info!(
         "连接目标: 探针={} 芯片={} 接口={:?} 时钟={:?}Hz 模式={:?}",
         options.probe_identifier,
@@ -401,9 +410,9 @@ pub(crate) fn open_session(options: &ConnectOptions) -> AppResult<OpenedSession>
 
     let empty_registry = Registry::new();
     let mut session = if options.connect_mode == ConnectMode::UnderReset {
-        probe.attach_under_reset_with_registry(target, Permissions::default(), &empty_registry)
+        probe.attach_under_reset_with_registry(target, permissions, &empty_registry)
     } else {
-        probe.attach_with_registry(target, Permissions::default(), &empty_registry)
+        probe.attach_with_registry(target, permissions, &empty_registry)
     }
     .map_err(|e| connect_error(&e))?;
 

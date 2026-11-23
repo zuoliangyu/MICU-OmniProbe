@@ -11,7 +11,7 @@
 import type { ChartConfig, ChartDataPoint } from "@/lib/chartTypes";
 import { DEFAULT_CHART_CONFIG, migrateChartConfig } from "@/lib/chartTypes";
 import { TelemetryFilterState, resolveTelemetryProcessing } from "@/lib/telemetry";
-import { TriggerDetector, stepTriggerCapture } from "@/lib/triggerCapture";
+import { TriggerDetector, stepTriggerCapture, type TriggerSnapshot } from "@/lib/triggerCapture";
 import { loadFromStorage, saveToStorage } from "@/lib/storage";
 
 export interface TelemetryChartState {
@@ -27,6 +27,11 @@ export interface TelemetryChartState {
   parseFailCount: number;
   /** 最近一次触发点的时间戳；供波形标记触发位置 */
   triggeredAt: number | null;
+  /**
+   * 最近一次触发捕获冻结下来的画面；冻结期间图表直接显示它。
+   * 解冻、重新武装或清空后为 null。
+   */
+  triggerCapture: TriggerSnapshot | null;
 
   addChartDataBatch: (points: ChartDataPoint[]) => void;
   clearChartData: () => void;
@@ -97,10 +102,11 @@ export function createTelemetryChartSlice(
     );
 
     return {
-      chartData: triggerPatch?.chartData ?? processing.rawData,
-      processedChartData: triggerPatch?.processedChartData ?? processing.processedData,
+      chartData: processing.rawData,
+      processedChartData: processing.processedData,
       filterActive: processing.filterActive,
-      ...(triggerPatch ? { chartPaused: true, triggeredAt: triggerPatch.triggeredAt } : {}),
+      // 捕获结果另存快照并冻结画面；滚动缓冲区照常追加，不被裁成窗口
+      ...(triggerPatch ?? {}),
     };
   };
 
@@ -113,6 +119,7 @@ export function createTelemetryChartSlice(
     parseSuccessCount: 0,
     parseFailCount: 0,
     triggeredAt: null,
+    triggerCapture: null,
 
     addChartDataBatch: (points) => set((state) => (points.length === 0 ? {} : appendSamples(state, points))),
 
@@ -128,6 +135,7 @@ export function createTelemetryChartSlice(
         parseSuccessCount: 0,
         parseFailCount: 0,
         triggeredAt: null,
+        triggerCapture: null,
       });
     },
 
@@ -138,16 +146,25 @@ export function createTelemetryChartSlice(
         // 配置可能调小了 maxDataPoints，先按新上限裁剪再重算
         const chartData = state.chartData.slice(-normalized.maxDataPoints);
         const processing = resolveTelemetryProcessing(chartData, normalized.channels, normalized.dataFilter);
+        // 开关触发或切换单次 / 正常模式等于重新设一次触发：检测器从待触发开始，
+        // 旧的触发点不再代表当前设置的状态。已冻结的画面保留，由用户决定何时恢复跟随。
+        const previousTrigger = state.chartConfig.trigger;
+        const triggerReset =
+          previousTrigger.enabled !== normalized.trigger.enabled || previousTrigger.mode !== normalized.trigger.mode;
+        if (triggerReset) triggerDetector.reset();
         return {
           chartConfig: normalized,
           chartData: processing.rawData,
           processedChartData: processing.processedData,
           filterActive: processing.filterActive,
+          ...(triggerReset ? { triggeredAt: null } : {}),
         };
       });
     },
 
-    setChartPaused: (chartPaused) => set({ chartPaused }),
+    // 解冻时丢弃触发快照：恢复跟随就是回到实时缓冲区。单次模式的检测器仍停在
+    // 「已捕获」，界面据 triggeredAt 继续提供重新武装。
+    setChartPaused: (chartPaused) => set(chartPaused ? { chartPaused } : { chartPaused, triggerCapture: null }),
 
     incrementParseCounts: (success, fail) =>
       set((state) => {
@@ -161,7 +178,7 @@ export function createTelemetryChartSlice(
 
     rearmTrigger: () => {
       triggerDetector.arm();
-      set({ chartPaused: false, triggeredAt: null });
+      set({ chartPaused: false, triggeredAt: null, triggerCapture: null });
     },
   };
 

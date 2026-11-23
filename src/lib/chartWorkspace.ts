@@ -1,4 +1,5 @@
 import type { ChartConfig, ChartDataPoint } from "@/lib/chartTypes";
+import type { TriggerSnapshot } from "@/lib/triggerCapture";
 
 export const CHART_WORKSPACE_SOURCES = ["rtt", "serial", "bluetooth"] as const;
 
@@ -19,6 +20,9 @@ export interface ChartWorkspaceSnapshot {
   chartPaused: boolean;
   parseSuccessCount: number;
   parseFailCount: number;
+  /** 触发点时间戳与触发捕获画面，独立窗口同样要显示捕获窗口并标注触发点 */
+  triggeredAt?: number | null;
+  triggerCapture?: TriggerSnapshot | null;
 }
 
 export type ChartWorkspaceAction =

@@ -4,7 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Input } from "@/components/ui/input";
 import { useDebugStore } from "@/stores/debugStore";
 import { useLogStore } from "@/stores/logStore";
-import { debugReadMemory, type ElfSymbol } from "@/lib/debug";
+import { debugReadMemory, formatHexBytes, formatLeScalar, type ElfSymbol } from "@/lib/debug";
 
 const MAX_VALUE_BYTES = 64; // 单变量最多展示 64 字节
 
@@ -12,14 +12,10 @@ function formatHex(value: number, width = 8): string {
   return `0x${value.toString(16).toUpperCase().padStart(width, "0")}`;
 }
 
-function formatBytesAsHex(bytes: number[]): string {
-  return bytes.map((b) => b.toString(16).toUpperCase().padStart(2, "0")).join(" ");
-}
-
-function bytesAsU32Le(bytes: number[]): string | null {
-  if (bytes.length < 4) return null;
-  const v = (bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (bytes[3] << 24)) >>> 0;
-  return `0x${v.toString(16).toUpperCase().padStart(8, "0")}`;
+/** 收起时的一行摘要：1/2/4/8 字节按整数显示，更长的显示前 4 字节的 32 位值，其余列出字节 */
+function summarizeValue(bytes: number[]): string {
+  const scalar = formatLeScalar(bytes) ?? (bytes.length > 4 ? formatLeScalar(bytes.slice(0, 4)) : null);
+  return scalar ? scalar.hex : formatHexBytes(bytes);
 }
 
 interface VariableValueState {
@@ -30,6 +26,7 @@ interface VariableValueState {
 export function LocalsPanel() {
   const symbols = useDebugStore((s) => s.symbols);
   const state = useDebugStore((s) => s.state);
+  const haltSeq = useDebugStore((s) => s.haltSeq);
   const addLog = useLogStore((s) => s.addLog);
 
   const variables = useMemo(() => symbols.filter((s) => s.category === "variable" && s.size > 0), [symbols]);
@@ -83,14 +80,14 @@ export function LocalsPanel() {
     }
   }, [state, expanded, variables, fetchValue]);
 
-  // halt 时自动刷新已展开的项；run/detached 时清掉缓存
+  // 每次停下（含单步）自动刷新已展开的项；run/detached 时清掉缓存
   useEffect(() => {
     if (state === "halted") {
       refreshExpanded();
     } else if (state === "running" || state === "detached") {
       setValues(new Map());
     }
-  }, [state, refreshExpanded]);
+  }, [state, haltSeq, refreshExpanded]);
 
   // index 变了重新计算行高
   useEffect(() => {
@@ -189,9 +186,7 @@ export function LocalsPanel() {
                       {formatHex(sym.address)} · {sym.size}B
                     </span>
                     {value && !isExpanded && (
-                      <span className="font-mono text-[11px] text-foreground">
-                        {bytesAsU32Le(value.bytes) ?? formatBytesAsHex(value.bytes.slice(0, 4)) + "..."}
-                      </span>
+                      <span className="font-mono text-[11px] text-foreground">{summarizeValue(value.bytes)}</span>
                     )}
                   </div>
                   {isExpanded && (
@@ -200,7 +195,7 @@ export function LocalsPanel() {
                         <span className="italic">需 halt 后才能读取</span>
                       ) : value ? (
                         <span className="break-all">
-                          {formatBytesAsHex(value.bytes)}
+                          {formatHexBytes(value.bytes)}
                           {sym.size > MAX_VALUE_BYTES && ` ... (前 ${MAX_VALUE_BYTES}/${sym.size} 字节)`}
                         </span>
                       ) : (

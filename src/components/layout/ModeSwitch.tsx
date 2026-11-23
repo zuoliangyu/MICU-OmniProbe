@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/appStore";
 import type { AppMode } from "@/lib/workspaces";
 import { WORKSPACE_REGISTRY } from "@/components/modes/workspaceRegistry";
-import { useRttStore } from "@/stores/rttStore";
 import { useFlashStore } from "@/stores/flashStore";
 import { useDebugStore } from "@/stores/debugStore";
 import { useControlPanelStore } from "@/stores/controlPanelStore";
@@ -25,41 +24,33 @@ interface ModeSwitchProps {
 export function ModeSwitch({ className, orientation = "horizontal" }: ModeSwitchProps) {
   const mode = useAppStore((state) => state.mode);
   const setMode = useAppStore((state) => state.setMode);
-  const rttRunning = useRttStore((state) => state.isRunning);
   const flashing = useFlashStore((state) => state.flashing);
   const debugAttached = useDebugStore((state) => state.state) !== "detached";
   const setControlPanelSource = useControlPanelStore((state) => state.setSource);
   const vertical = orientation === "vertical";
-  type ConfirmReason = "rtt" | "debug";
-  const [confirmDialog, setConfirmDialog] = useState<{
-    open: boolean;
-    targetMode: AppMode | null;
-    reason: ConfirmReason | null;
-  }>({ open: false, targetMode: null, reason: null });
+  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; targetMode: AppMode | null }>({
+    open: false,
+    targetMode: null,
+  });
 
   const handleModeChange = (newMode: AppMode) => {
     if (newMode === mode) return;
     if (newMode === "control-panel" && (mode === "serial" || mode === "rtt")) setControlPanelSource(mode);
-    if (rttRunning && newMode === "flash") {
-      setConfirmDialog({ open: true, targetMode: newMode, reason: "rtt" });
-      return;
-    }
+    // RTT 不受工作台切换影响：烧录期间后端只暂停读取，烧完自动重新查找控制块
     if (debugAttached && mode === "debug" && newMode !== "debug") {
-      setConfirmDialog({ open: true, targetMode: newMode, reason: "debug" });
+      setConfirmDialog({ open: true, targetMode: newMode });
       return;
     }
     if (!flashing) setMode(newMode);
   };
 
-  const closeDialog = () => setConfirmDialog({ open: false, targetMode: null, reason: null });
+  const closeDialog = () => setConfirmDialog({ open: false, targetMode: null });
   const handleConfirmSwitch = () => {
     if (confirmDialog.targetMode) setMode(confirmDialog.targetMode);
     closeDialog();
   };
   const dialogText =
-    confirmDialog.reason === "debug"
-      ? "调试会话仍在 attach 状态。切换工作台不会自动 Detach；如需让其他模式使用同一探针，请先回到调试工作台断开会话。确定继续？"
-      : "RTT 正在运行。切换到烧录模式会停止 RTT 数据接收，确定继续吗？";
+    "调试会话仍在 attach 状态。切换工作台不会自动 Detach；如需让其他模式使用同一探针，请先回到调试工作台断开会话。确定继续？";
 
   return (
     <>

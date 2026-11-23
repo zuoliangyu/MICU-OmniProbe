@@ -1,5 +1,7 @@
 import { create } from "zustand";
-import type { ProbeInfo, TargetInfo, ConnectionInfo, DeviceSettings } from "@/lib/types";
+import type { ProbeInfo, TargetInfo, ConnectionInfo, ConnectOptions, DeviceSettings } from "@/lib/types";
+import { getChipInfo } from "@/lib/tauri";
+import { useChipStore } from "./chipStore";
 
 interface ProbeState {
   // 状态
@@ -79,3 +81,27 @@ export const useProbeStore = create<ProbeState>((set) => ({
       error: null,
     }),
 }));
+
+/** 由探针、芯片与接口设置组装烧录连接参数（侧栏「连接设备」与「解锁芯片」共用） */
+export function buildConnectOptions(probe: ProbeInfo, target: string, settings: DeviceSettings): ConnectOptions {
+  return {
+    probe_identifier: probe.probe_id,
+    target,
+    interface_type: settings.interfaceType === "SWD" ? "Swd" : "Jtag",
+    clock_speed: settings.clockSpeed,
+    connect_mode: settings.connectMode === "Normal" ? "Normal" : "UnderReset",
+  };
+}
+
+/**
+ * 选定目标芯片：同步芯片选择、搜索框与 probeStore，并加载芯片信息（侧栏选择与打开项目共用）。
+ * 芯片信息加载失败时抛出错误，由调用方记录日志。
+ */
+export async function selectTargetChip(chipName: string): Promise<void> {
+  const chip = useChipStore.getState();
+  chip.selectChip(chipName);
+  chip.setSearchQuery(chipName);
+  chip.setSearchResults([]);
+  useProbeStore.getState().setSelectedChipName(chipName);
+  chip.setChipInfo(await getChipInfo(chipName));
+}

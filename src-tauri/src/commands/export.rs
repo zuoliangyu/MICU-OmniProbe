@@ -1,8 +1,8 @@
 use crate::error::{AppError, AppResult};
 use std::path::Path;
 
-/// 允许导出的文本扩展名（小写比较）。ekrec 是采集会话记录（NDJSON）。
-const TEXT_EXTENSIONS: &[&str] = &["txt", "csv", "log", "json", "yaml", "yml", "md", "ekrec"];
+/// 允许导出的文本扩展名（小写比较）。ekrec 是采集会话记录（NDJSON），omniproj 是烧录项目文件（JSON）。
+const TEXT_EXTENSIONS: &[&str] = &["txt", "csv", "log", "json", "yaml", "yml", "md", "ekrec", "omniproj"];
 
 /// 读取文本文件的大小上限。会话录制器本身限制在 32MB 原始字节，
 /// base64 加 JSON 开销后约 50-60MB；这里留出余量并封顶，

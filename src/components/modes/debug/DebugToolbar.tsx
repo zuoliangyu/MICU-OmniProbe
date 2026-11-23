@@ -21,6 +21,7 @@ import {
   type DebugCoreState,
 } from "@/lib/debug";
 import { ViewMenu } from "./ViewMenu";
+import { RESET_MODE_LABELS } from "@/lib/types";
 
 interface DebugToolbarProps {
   onResetLayout: () => void;
@@ -34,6 +35,7 @@ export function DebugToolbar({ onResetLayout }: DebugToolbarProps) {
   const clearSymbolsStore = useDebugStore((s) => s.clearSymbols);
   const setFrames = useDebugStore((s) => s.setFrames);
   const setCurrentFrameId = useDebugStore((s) => s.setCurrentFrameId);
+  const refreshBreakpoints = useDebugStore((s) => s.refreshBreakpoints);
 
   const selectedProbe = useProbeStore((s) => s.selectedProbe);
   const selectedChipName = useProbeStore((s) => s.selectedChipName);
@@ -128,32 +130,27 @@ export function DebugToolbar({ onResetLayout }: DebugToolbarProps) {
       await refreshCallStack();
     });
 
-  const handleStepIn = () =>
-    withBusy("step-in", async () => {
-      const core = await debugStepIn();
-      setDebugState(core.state, "step", core.pc ?? null);
-      await refreshCallStack();
-    });
+  // 单步结果写回 store：跨过 / 跳出途中被断点拦下时按断点停止处理，并刷新命中次数
+  const applyStepResult = async (core: DebugCoreState) => {
+    setDebugState(core.state, core.breakpoint_hit ? "breakpoint" : "step", core.pc ?? null);
+    if (core.breakpoint_hit) {
+      addLog("info", `命中断点 @ 0x${(core.pc ?? 0).toString(16).padStart(8, "0")}`);
+      await refreshBreakpoints().catch((error) => addLog("warn", `读断点列表失败: ${error}`));
+    }
+    await refreshCallStack();
+  };
 
-  const handleStepOver = () =>
-    withBusy("step-over", async () => {
-      const core = await debugStepOver();
-      setDebugState(core.state, "step", core.pc ?? null);
-      await refreshCallStack();
-    });
+  const handleStepIn = () => withBusy("step-in", async () => applyStepResult(await debugStepIn()));
 
-  const handleStepOut = () =>
-    withBusy("step-out", async () => {
-      const core = await debugStepOut();
-      setDebugState(core.state, "step", core.pc ?? null);
-      await refreshCallStack();
-    });
+  const handleStepOver = () => withBusy("step-over", async () => applyStepResult(await debugStepOver()));
+
+  const handleStepOut = () => withBusy("step-out", async () => applyStepResult(await debugStepOut()));
 
   const handleReset = () =>
     withBusy("reset", async () => {
-      const core = await debugReset();
+      const core = await debugReset(settings.resetMode);
       applyCoreState(core);
-      addLog("info", "已 reset");
+      addLog("info", `已复位（${RESET_MODE_LABELS[settings.resetMode]}）`);
     });
 
   const handleLoadElf = async () => {
@@ -270,6 +267,7 @@ export function DebugToolbar({ onResetLayout }: DebugToolbarProps) {
         variant="ghost"
         disabled={!attached || busy}
         className="gap-1.5 rounded-full px-3"
+        title={`复位（${RESET_MODE_LABELS[settings.resetMode]}，可在配置检查器「接口设置」中切换）`}
         onClick={handleReset}
       >
         <RotateCw className="h-3.5 w-3.5" />
