@@ -10,7 +10,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Progress } from "@/components/ui/progress";
 import { Download, RefreshCw, CheckCircle } from "lucide-react";
 import { useLogStore } from "@/stores/logStore";
 
@@ -28,23 +27,10 @@ export function UpdateChecker({ autoCheck = true, showTrigger = true, trigger }:
   const [checking, setChecking] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<Update | null>(null);
   const [updatePhase, setUpdatePhase] = useState<"idle" | "downloading" | "installing" | "restarting">("idle");
-  const [downloadedBytes, setDownloadedBytes] = useState(0);
-  const [totalBytes, setTotalBytes] = useState<number | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const addLog = useLogStore((state) => state.addLog);
   const downloading = updatePhase !== "idle";
-  const downloadProgress =
-    updatePhase === "installing" || updatePhase === "restarting"
-      ? 100
-      : totalBytes !== null
-        ? Math.min((downloadedBytes / totalBytes) * 100, 100)
-        : null;
-  const updateStatus =
-    updatePhase === "installing"
-      ? "正在安装更新"
-      : updatePhase === "restarting"
-        ? "更新完成，即将重启"
-        : "正在下载更新";
+  const updateStatus = updatePhase === "restarting" ? "更新完成，即将重启" : "升级中…";
 
   const checkForUpdates = useCallback(
     async (silent = false) => {
@@ -84,8 +70,6 @@ export function UpdateChecker({ autoCheck = true, showTrigger = true, trigger }:
 
   const downloadAndInstall = async () => {
     if (!updateInfo || downloading) return;
-    setDownloadedBytes(0);
-    setTotalBytes(null);
 
     try {
       setUpdatePhase("downloading");
@@ -94,17 +78,10 @@ export function UpdateChecker({ autoCheck = true, showTrigger = true, trigger }:
       await updateInfo.downloadAndInstall((event: DownloadEvent) => {
         switch (event.event) {
           case "Started": {
-            // 总大小只在 Started 事件中提供，后续 Progress 仅包含本次分块大小。
             const contentLength = event.data.contentLength;
-            setDownloadedBytes(0);
-            setTotalBytes(contentLength && contentLength > 0 ? contentLength : null);
             if (contentLength) {
               addLog("info", `开始下载: ${contentLength} 字节`);
             }
-            break;
-          }
-          case "Progress": {
-            setDownloadedBytes((bytes) => bytes + event.data.chunkLength);
             break;
           }
           case "Finished":
@@ -154,8 +131,8 @@ export function UpdateChecker({ autoCheck = true, showTrigger = true, trigger }:
             <DialogTitle className="flex items-center gap-2">
               {downloading ? (
                 <>
-                  <Download className="h-5 w-5 text-blue-500" />
-                  {updateStatus}
+                  <RefreshCw className="h-5 w-5 animate-spin text-blue-500" />
+                  <span role="status">{updateStatus}</span>
                 </>
               ) : (
                 <>
@@ -192,19 +169,6 @@ export function UpdateChecker({ autoCheck = true, showTrigger = true, trigger }:
             </DialogDescription>
           </DialogHeader>
 
-          {downloading && (
-            <div className="space-y-2">
-              <Progress value={downloadProgress} className="h-2" aria-label="更新下载进度" />
-              <p className="text-xs text-center text-muted-foreground" role="status">
-                {updatePhase !== "downloading"
-                  ? `下载完成，${updateStatus}`
-                  : downloadProgress !== null
-                    ? `${Math.round(downloadProgress)}%`
-                    : `已下载 ${(downloadedBytes / 1024 / 1024).toFixed(2)} MB（总大小未知）`}
-              </p>
-            </div>
-          )}
-
           <DialogFooter className="flex gap-2">
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={downloading}>
               稍后更新
@@ -212,12 +176,8 @@ export function UpdateChecker({ autoCheck = true, showTrigger = true, trigger }:
             <Button onClick={downloadAndInstall} disabled={downloading} className="gap-2">
               {downloading ? (
                 <>
-                  <Download className="h-4 w-4 animate-bounce" />
-                  {updatePhase === "installing"
-                    ? "安装中..."
-                    : updatePhase === "restarting"
-                      ? "即将重启..."
-                      : "下载中..."}
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  {updatePhase === "restarting" ? "即将重启…" : "升级中…"}
                 </>
               ) : (
                 <>
