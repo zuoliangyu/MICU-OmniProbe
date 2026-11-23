@@ -2,6 +2,10 @@
   - [文档首页](README.md)
   - [快速入门](QUICK_START.md)
 
+- 烧录与调试
+  - [烧录工作台](FLASH_USER_MANUAL.md)
+  - [调试工作台](DEBUG_USER_MANUAL.md)
+
 - 数据与控制面板
   - [日志分析](LOG_ANALYSIS_GUIDE.md)
   - [输入数据解析格式](DATA_FORMAT_GUIDE.md)
