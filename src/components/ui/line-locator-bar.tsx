@@ -93,8 +93,13 @@ export function LineLocatorBar({ lines, locator }: LineLocatorBarProps) {
         </Button>
       </div>
 
-      <div className="flex min-w-0 flex-1 items-center gap-1">
-        <div role="group" aria-label="查找方式" className="flex items-center rounded-lg border border-border/60 p-0.5">
+      {/* 窄宽度（如分屏）下允许组内换行，避免查找框和上下跳转按钮被挤出截断 */}
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+        <div
+          role="group"
+          aria-label="查找方式"
+          className="flex shrink-0 items-center rounded-lg border border-border/60 p-0.5"
+        >
           {(["text", "hex"] as const).map((value) => (
             <Button
               key={value}
