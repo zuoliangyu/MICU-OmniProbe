@@ -41,36 +41,52 @@ MICU-OmniProbe 把嵌入式开发中经常分散在多个软件里的工作流�
 
 | 你的任务               | 使用的工作台 | 主要能力                                                   |
 | ---------------------- | ------------ | ---------------------------------------------------------- |
-| 给 MCU 下载固件        | 烧录         | ELF / HEX / BIN 等格式，擦除、烧录、校验、读取             |
-| 查看高速调试输出       | RTT          | 多通道日志与下行发送、搜索、颜色标记、波形和 FFT           |
+| 给 MCU 下载固件        | 烧录         | ELF / HEX / BIN 等格式，擦除、烧录、校验、读取、解锁，复位 / 停止 / 运行，项目文件 |
+| 查看高速调试输出       | RTT          | 多通道日志与下行发送、搜索、颜色标记、波形、FFT 和滤波     |
 | 调试 CLI 或串口协议    | 串口         | 串口/TCP/UDP、通用二进制、CAN/SLCAN、Modbus、终端与图表    |
 | 分析已有日志文件       | 日志         | 流式导入大日志、搜索、时间戳识别和数值图表                 |
 | 组合设备操作与数据显示 | 控制面板     | 独立画布，可选择串口或 RTT 数据来源                        |
 | 调试无线设备           | 蓝牙         | BLE 扫描、GATT、Notify / Write、NUS 自动识别、经典蓝牙 SPP |
-| 定位 Cortex-M 程序问题 | 调试         | 源码、寄存器、内存、Watch、调用栈和断点                    |
+| 定位 Cortex-M 程序问题 | 调试         | 源码、寄存器、内存、Watch、调用栈、断点与命中计数          |
 
 ## 界面预览
 
 <table>
   <tr>
+    <td width="50%"><img src="docs/images/rtt-workbench.png" alt="RTT 工作台：彩色日志与实时波形分屏" /></td>
+    <td width="50%"><img src="docs/images/debug-workbench.png" alt="调试工作台：停在断点，源码、调用栈、断点、寄存器与观察面板" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>RTT</b>：彩色日志与波形分屏，支持下行发送</td>
+    <td align="center"><b>调试</b>：源码级断点、单步、寄存器与变量观察</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/flash-workbench.png" alt="烧录工作台：固件、芯片信息、Flash 映射与烧录进度" /></td>
     <td width="50%"><img src="docs/images/control-panel.png" alt="控制面板：波形、FFT、数值、状态灯、滑块、摇杆与串口日志组合" /></td>
-    <td width="50%"><img src="docs/images/log-analysis.png" alt="日志分析：导入日志后分屏查看文本与数值曲线" /></td>
   </tr>
   <tr>
+    <td align="center"><b>烧录</b>：多格式固件烧录、校验、读取与解锁</td>
     <td align="center"><b>控制面板</b>：自由画布组合发送控件与实时图表</td>
-    <td align="center"><b>日志分析</b>：流式导入大日志，按前缀提取数值绘图</td>
   </tr>
   <tr>
+    <td width="50%"><img src="docs/images/log-analysis.png" alt="日志分析：导入日志后分屏查看文本与数值曲线" /></td>
     <td width="50%"><img src="docs/images/protocol-designer.png" alt="二进制协议设计器：帧头、长度字段与 CRC 配置" /></td>
-    <td width="50%"><img src="docs/images/fft-demo.png" alt="FFT 频谱：5 Hz 主信号与 40 Hz 干扰" /></td>
   </tr>
   <tr>
+    <td align="center"><b>日志分析</b>：流式导入大日志，按前缀提取数值绘图</td>
     <td align="center"><b>二进制协议设计器</b>：可视化配置帧同步、字段与 CRC</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/fft-demo.png" alt="FFT 频谱：5 Hz 主信号与 40 Hz 干扰" /></td>
+    <td width="50%"></td>
+  </tr>
+  <tr>
     <td align="center"><b>FFT 频谱</b>：内置滤波演示，一眼看出 5 Hz 信号与 40 Hz 干扰</td>
+    <td></td>
   </tr>
 </table>
 
-> 截图均使用应用内置的“模拟数据”生成，无需连接硬件即可复现。
+> 串口相关截图使用应用内置的“模拟数据”生成，无需连接硬件即可复现；RTT、烧录和调试截图使用演示数据。
 
 ## 3.2.2 更新重点
 
@@ -151,7 +167,7 @@ MICU-OmniProbe 把嵌入式开发中经常分散在多个软件里的工作流�
 当前界面采用统一的 IDE 式布局：
 
 - 左侧模式轨道切换烧录、RTT、串口、日志、控制面板、蓝牙和调试工作台
-- 顶部命令栏显示当前模式、目标芯片、探针和连接状态（调试工作台显示会话状态与已加载的 ELF）
+- 顶部命令栏显示当前模式、目标芯片、探针和连接状态（调试工作台显示会话状态与已加载的 ELF）；右上角的「接入指南」打开 RTT 固件接入步骤，「使用教程」直接打开当前工作台的在线手册
 - 中央工作区专注当前任务，低频操作统一收进“更多”
 - 右侧配置检查器负责连接和参数设置，可折叠、拖动宽度
 - 底部日志默认折叠，需要排查连接、解析或烧录问题时再展开
@@ -189,8 +205,9 @@ sudo ./install-udev-rules.sh
 
 1. 连接 CMSIS-DAP 探针。
 2. 在右侧选择探针和目标芯片；找不到芯片时导入厂商 CMSIS-Pack。
-3. 打开或拖入 ELF、HEX、BIN、AXF、OUT、IHEX 固件。
+3. 打开或拖入 ELF、HEX、BIN、AXF、OUT、IHEX 固件；常用组合可用「保存项目」存成 `.omniproj`，下次「打开项目」一键恢复。
 4. 连接目标设备，然后点击“烧录”。
+5. 需要时使用工具栏的校验、读取、复位 / 停止 / 运行；芯片被锁或连不上时可用「解锁芯片」整片擦除。
 
 ### 使用 RTT
 
@@ -198,7 +215,7 @@ sudo ./install-udev-rules.sh
 2. 点击“连接 RTT”，再点击“启动”；已在烧录工作台连接设备时可直接启动。
 3. 在文本、分屏或图表视图中观察数据；固件有下行通道时可在文本区下方向目标发送数据。
 4. 需要时点击启动按钮旁的扫描模式按钮，改用 ELF 符号、指定地址或地址范围定位控制块。
-5. 从“更多”使用智能启用、波形、FFT、图表配置、导出和 RTT 接入指南。
+5. 从“更多”使用智能启用、波形、FFT、图表配置（含滤波）、导出和录制；固件接入步骤随时可从顶栏「接入指南」打开。
 
 目标固件需要集成 SEGGER RTT；仓库中的 [`RTTBSP/`](RTTBSP/) 和 [`examples/gd32-rtt/`](examples/gd32-rtt/) 提供可直接参考的文件与示例。
 
@@ -233,10 +250,10 @@ BLE：
 
 ### 源码级调试
 
-1. 选择探针、目标芯片和带调试信息的 ELF 文件。
-2. Attach 到目标设备。
-3. 使用源码、寄存器、内存、Locals、Watch、调用栈和断点面板定位问题。
-4. 面板支持停靠、浮动、合并标签和一键恢复默认布局。
+1. 在右侧选择探针和目标芯片，点击工具栏「连接」附加调试会话。
+2. 点击「加载 ELF…」选择带调试信息的 ELF / AXF 文件。
+3. 使用源码、寄存器、内存、全局变量、观察、调用栈和断点面板定位问题；断点面板显示每个断点的命中次数。
+4. 面板支持停靠、浮动和合并标签，布局自动保存，可一键恢复默认布局。
 
 更完整的操作步骤请阅读 [快速入门指南](https://zuoliangyu.github.io/MICU-OmniProbe/#/QUICK_START)。
 
@@ -296,7 +313,7 @@ flowchart TB
 
 图表工作台支持字段选择、通道改名、单位和颜色、缓冲区上限、可视点数、采样率、CSV / PNG 导出以及独立窗口。波形底部控制栏统一显示采样间隔、缓冲/绘制点数、每格时间或频率、通道和滤波状态，并提供与 `Shift + 滚轮`作用相同的 X 轴缩放条；采样率与视图范围可一键恢复自动。串口的数据解析统一放在右侧“数据”页，图表工具栏集中提供冻结、清空、时域/FFT、统计、通道和导出；冻结期间后台仍会继续解析并缓存数据。
 
-串口右侧“数据”页支持图形化级联低通、高通和带通滤波，可预览频率响应并导出 JSON 参数；也可以粘贴 MATLAB 生成的 FIR 系数或 IIR 的 SOS/ScaleValues。可在串口工作台右侧“连接”页选择“模拟数据 → 滤波演示”，用内置的 5 Hz 主信号和 40 Hz 干扰直接观察时域、FFT 和统计结果。原始日志、CSV 和 AI 数据不会被覆盖。详见 [数据滤波与 MATLAB 参数](https://zuoliangyu.github.io/MICU-OmniProbe/#/MATLAB_FILTER_GUIDE)。
+串口、RTT 和蓝牙都支持图形化级联低通、高通和带通滤波（串口在右侧“数据”页，RTT 和蓝牙在“更多 → 图表配置”的“滤波”分类），可预览频率响应并导出 JSON 参数；也可以粘贴 MATLAB 生成的 FIR 系数或 IIR 的 SOS/ScaleValues。可在串口工作台右侧“连接”页选择“模拟数据 → 滤波演示”，用内置的 5 Hz 主信号和 40 Hz 干扰直接观察时域、FFT 和统计结果。原始日志、CSV 和 AI 数据不会被覆盖。详见 [数据滤波与 MATLAB 参数](https://zuoliangyu.github.io/MICU-OmniProbe/#/MATLAB_FILTER_GUIDE)。
 
 ## 控制面板与模拟数据
 
@@ -344,6 +361,8 @@ flowchart TB
 | 文档                                                                                 | 适合解决的问题                              |
 | ------------------------------------------------------------------------------------ | ------------------------------------------- |
 | [快速入门](https://zuoliangyu.github.io/MICU-OmniProbe/#/QUICK_START)                | 第一次打开应用，了解界面和基本流程          |
+| [烧录工作台](https://zuoliangyu.github.io/MICU-OmniProbe/#/FLASH_USER_MANUAL)        | 探针与芯片、Pack、烧录、校验、读取和解锁    |
+| [调试工作台](https://zuoliangyu.github.io/MICU-OmniProbe/#/DEBUG_USER_MANUAL)        | 加载 ELF、断点、单步、源码和变量观察        |
 | [RTT 用户手册](https://zuoliangyu.github.io/MICU-OmniProbe/#/RTT_USER_MANUAL)        | RTT 接入、连接、通道和常见问题              |
 | [图表与 FFT](https://zuoliangyu.github.io/MICU-OmniProbe/#/RTT_CHART_GUIDE)          | 数值格式、波形、FFT、字段和性能参数         |
 | [XY 散点图](https://zuoliangyu.github.io/MICU-OmniProbe/#/RTT_XY_SCATTER_GUIDE)      | 绘制真正的 XY 数据和参数曲线                |
@@ -353,7 +372,7 @@ flowchart TB
 | [设置中心](https://zuoliangyu.github.io/MICU-OmniProbe/#/SETTINGS_GUIDE)             | 主题、背景、默认工作台和日志偏好            |
 | [AI 数据桥接](https://zuoliangyu.github.io/MICU-OmniProbe/#/AI_TUNING_GUIDE)         | 将串口、RTT、蓝牙数据交给本地 AI 分析和调参 |
 | [触发捕获](https://zuoliangyu.github.io/MICU-OmniProbe/#/TRIGGER_CAPTURE_GUIDE)      | 抓瞬时现象：条件成立时冻结前后数据          |
-| [会话录制与回放](https://zuoliangyu.github.io/MICU-OmniProbe/#/SESSION_RECORD_GUIDE) | 录下原始数据，换配置反复重放分析            |
+| [会话录制与回放](https://zuoliangyu.github.io/MICU-OmniProbe/#/SESSION_RECORD_GUIDE) | 录下原始数据，之后反复回放并调整滤波            |
 | [无线串口透传](https://zuoliangyu.github.io/MICU-OmniProbe/#/WIRELESS_SERIAL_GUIDE)  | Zigbee / LoRa / 蓝牙透传模块接入            |
 
 全部用户文档见 [在线用户文档](https://zuoliangyu.github.io/MICU-OmniProbe/)。
