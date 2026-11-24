@@ -100,6 +100,12 @@ export function FlashToolbar() {
   const flashRegions = targetInfo?.memory_regions.filter((region) => region.kind === "Flash") ?? [];
   const deviceBusy = !connected || flashing;
 
+  /** 开始一次设备操作：进入忙碌状态并重置进度，避免进度条残留上一次操作（如「烧录完成 100%」） */
+  const beginOperation = (phase: string, message: string) => {
+    setFlashing(true);
+    setProgress(0, phase, message);
+  };
+
   useEffect(() => {
     const unlisten = listen<FlashProgressEvent>("flash-progress", (event) => {
       const { phase, progress, message } = event.payload;
@@ -124,8 +130,7 @@ export function FlashToolbar() {
     }
 
     try {
-      setFlashing(true);
-      setProgress(0, "init", "重载固件文件...");
+      beginOperation("init", "重载固件文件...");
 
       // 烧录前重载固件文件信息
       const fileInfo = await getFirmwareInfo(firmwarePath);
@@ -171,7 +176,7 @@ export function FlashToolbar() {
 
   const handleEraseConfirm = async (mode: "full" | "custom", address?: number, size?: number) => {
     try {
-      setFlashing(true);
+      beginOperation("erase", mode === "full" ? "开始全片擦除" : "开始扇区擦除");
 
       if (mode === "full") {
         addLog("info", "开始全片擦除");
@@ -204,7 +209,7 @@ export function FlashToolbar() {
     }
 
     try {
-      setFlashing(true);
+      beginOperation("verify", "开始校验");
       addLog("info", "开始校验");
       // 与烧录使用同一地址，否则自定义地址烧录的 BIN 必定校验不匹配（HEX / ELF 自带地址，后端忽略）
       const result = await verifyFirmware(firmwarePath, useCustomAddress ? customFlashAddress : undefined);
@@ -228,7 +233,7 @@ export function FlashToolbar() {
     if (!path) return;
 
     try {
-      setFlashing(true);
+      beginOperation("read", `正在读取 ${formatHex(address)} 起 ${size} 字节...`);
       addLog("info", `开始读取 Flash: ${formatHex(address)} 起 ${size} 字节`);
       const data = await readFlash(address, size);
       await writeBinaryFile(path, data);
@@ -243,8 +248,7 @@ export function FlashToolbar() {
   const handleUnlockConfirm = async () => {
     if (!selectedProbe || !selectedChip) return;
     try {
-      setFlashing(true);
-      setProgress(0, "erase", "正在解锁芯片...");
+      beginOperation("erase", "正在解锁芯片...");
       addLog("warn", `开始解锁 ${selectedChip}：将擦除全部 Flash`);
       const target = await unlockChip(buildConnectOptions(selectedProbe, selectedChip, settings));
       const status = await getConnectionStatus();

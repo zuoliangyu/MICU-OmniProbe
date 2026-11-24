@@ -90,18 +90,24 @@ export function SourceViewPanel() {
   const [error, setError] = useState<string | null>(null);
 
   const editorRef = useRef<ReactCodeMirrorRef | null>(null);
+  // 已加载（或正在加载）的请求路径。不能用 loadedPath 状态做依赖：加载成功写入它会让 effect 重跑，
+  // 清理函数把刚完成的请求标记为取消，loading 就再也不会复位，源码面板卡在「读取中...」
+  const requestedPathRef = useRef<string | null>(null);
 
   // 当前 frame 的源文件变化 → 重新加载
   useEffect(() => {
     const targetPath = currentFrame?.file ?? null;
     if (!targetPath) {
+      requestedPathRef.current = null;
       setContent("");
       setLoadedPath(null);
       setError(null);
+      setLoading(false);
       return;
     }
-    if (targetPath === loadedPath) return;
+    if (targetPath === requestedPathRef.current) return;
 
+    requestedPathRef.current = targetPath;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -110,23 +116,26 @@ export function SourceViewPanel() {
         if (cancelled) return;
         setContent(res.content);
         setLoadedPath(res.path);
+        setLoading(false);
       })
       .catch((err) => {
         if (cancelled) return;
         const msg = String(err);
+        // 失败后允许下次切回同一文件时重试
+        requestedPathRef.current = null;
         setError(msg);
         setContent("");
         setLoadedPath(null);
+        setLoading(false);
         addLog("warn", `读源文件失败: ${msg}`);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
       });
 
     return () => {
       cancelled = true;
+      // 请求被新文件取代时清空记录，否则快速切回原文件会被误判为已加载
+      if (requestedPathRef.current === targetPath) requestedPathRef.current = null;
     };
-  }, [currentFrame?.file, loadedPath, addLog]);
+  }, [currentFrame?.file, addLog]);
 
   // 滚动到 PC 行
   useEffect(() => {
