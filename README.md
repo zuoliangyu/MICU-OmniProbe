@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.2.2-blue" alt="Version 3.2.2" />
+  <img src="https://img.shields.io/badge/version-3.3.0-blue" alt="Version 3.3.0" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey" alt="Windows Linux macOS" />
 </p>
@@ -87,6 +87,16 @@ MICU-OmniProbe 把嵌入式开发中经常分散在多个软件里的工作流�
 </table>
 
 > 串口相关截图使用应用内置的“模拟数据”生成，无需连接硬件即可复现；RTT、烧录和调试截图使用演示数据。
+
+## 3.3.0 更新重点
+
+3.3.0 让界面上的每个按钮都真正可用，并让帮助随手可得：
+
+- **帮助就在右上角**：顶栏新增「接入指南」和「使用教程」，任意工作台都能打开 RTT 固件接入步骤，或直接跳到当前工作台的在线手册
+- **烧录工作台补齐**：复位 / 停止 / 运行、解锁芯片、保存与打开项目（`.omniproj`）都已可用；读取可设起止地址，校验支持 HEX / ELF / AXF / OUT；「复位方式」开始生效，硬件复位拉低 nRST
+- **调试更顺手**：断点命中次数会累加，1 / 2 字节变量正常显示，单步后面板自动刷新，跨文件单步时源码不再卡在「读取中」，面板布局自动保存
+- **RTT 与图表**：颜色标记支持 `[/]` 和 `bg-*`，触发捕获可重新武装、冻结画面就是捕获窗口，RTT 与蓝牙开放滤波，分隔符支持 `\t` 等转义
+- **文档全面补齐**：新增烧录、调试两本手册，其余手册按当前界面逐项核对
 
 ## 3.2.2 更新重点
 
@@ -419,7 +429,7 @@ Windows 也可以直接运行：
 
 ## 版本、反馈与贡献
 
-- 当前版本：`3.2.2`
+- 当前版本：`3.3.0`
 - 完整变化：[CHANGELOG.md](CHANGELOG.md)
 - 问题与建议：[GitHub Issues](https://github.com/zuoliangyu/MICU-OmniProbe/issues)
 - 项目仓库：[zuoliangyu/MICU-OmniProbe](https://github.com/zuoliangyu/MICU-OmniProbe)
