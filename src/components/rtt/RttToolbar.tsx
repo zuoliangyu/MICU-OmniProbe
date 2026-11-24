@@ -33,7 +33,6 @@ import {
 } from "lucide-react";
 import { ColorSettingsDialog } from "./ColorSettingsDialog";
 import { LazyChartConfigDialog } from "@/components/lazyDialogs";
-import { RttIntegrationGuideDialog } from "./RttIntegrationGuideDialog";
 import { useEffect, useMemo, useState } from "react";
 import { detectChartConfig, recentChartSamples } from "@/lib/chartAnalysis";
 import { exportRttLinesAsTxt, exportRttLinesAsCsv } from "@/lib/exporters";
@@ -460,7 +459,6 @@ export function RttToolbar() {
                   setSplitOrientation={setSplitOrientation}
                   leadingActions={
                     <>
-                      <RttIntegrationGuideDialog />
                       <Button
                         size="sm"
                         variant={chartConfig.enabled ? "secondary" : "outline"}
